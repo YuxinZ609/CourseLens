@@ -1,0 +1,206 @@
+{
+  "name": "CourseLens - 04 Student Profile Agent v1 HTTP OpenAI",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "Student Profile Agent v1\n\nPurpose:\nBuild a structured student profile from self-assessments, mistake records, study-time constraints, target level, and learning preferences.\n\nCurrent scope:\n- Input can be JSON with student_text, student_inputs[], self_assessments[], mistake_records[], wrong_questions[], and time_constraints.\n- The agent extracts self-assessed mastery, weaknesses, mistake patterns, time profile, learning preferences, and risk flags.\n- The parser node converts the LLM output into strict JSON.\n\nImportant boundary:\nThis workflow does not generate a final review plan, predict exam scores, diagnose psychological states, or decide final priorities. It only reports evidence-grounded student profile information for later fusion.",
+        "height": 420,
+        "width": 520,
+        "color": 3
+      },
+      "id": "d4a27b31-7c05-46be-9f24-0e1d2f04c001",
+      "name": "Workflow Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2128,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "student-profile-agent",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "d4a27b31-7c05-46be-9f24-0e1d2f04c002",
+      "name": "Webhook - Receive Student Data",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        2640,
+        832
+      ],
+      "webhookId": "student-profile-agent"
+    },
+    {
+      "parameters": {
+        "jsCode": "const incoming = $input.first()?.json ?? {};\nconst body = incoming.body ?? incoming;\n\nconst courseName = body.course_name || body.courseName || \"Unknown Course\";\nconst courseId = body.course_id || body.courseId || \"course_unknown\";\nconst studentId = body.student_id || body.studentId || \"student_unknown\";\n\nconst rawSelfAssessments = [\n  ...(Array.isArray(body.student_inputs) ? body.student_inputs : []),\n  ...(Array.isArray(body.studentInputs) ? body.studentInputs : []),\n  ...(Array.isArray(body.self_assessments) ? body.self_assessments : []),\n  ...(Array.isArray(body.selfAssessments) ? body.selfAssessments : [])\n];\n\nconst rawMistakes = [\n  ...(Array.isArray(body.mistake_records) ? body.mistake_records : []),\n  ...(Array.isArray(body.mistakeRecords) ? body.mistakeRecords : []),\n  ...(Array.isArray(body.wrong_questions) ? body.wrong_questions : []),\n  ...(Array.isArray(body.wrongQuestions) ? body.wrongQuestions : []),\n  ...(Array.isArray(body.mistakes) ? body.mistakes : [])\n];\n\nconst timeConstraints = body.time_constraints || body.timeConstraints || {};\nconst targetLevel = body.target_level || body.targetLevel || body.target_score || body.targetScore || timeConstraints.target_level || timeConstraints.targetLevel || null;\nconst studentText = body.student_text || body.studentText || body.text || \"\";\n\nconst profileSources = [];\n\nif (studentText) {\n  profileSources.push({\n    source_id: body.student_text_source_id || body.studentTextSourceId || \"student_text_001\",\n    source_type: \"student_text\",\n    topic: null,\n    question_id: null,\n    text: studentText,\n    metadata: {}\n  });\n}\n\nrawSelfAssessments.forEach((source, index) => {\n  profileSources.push({\n    source_id: source.source_id || source.sourceId || `self_eval_${String(index + 1).padStart(3, \"0\")}`,\n    source_type: source.source_type || source.sourceType || \"self_assessment\",\n    topic: source.topic || source.topic_or_concept || source.topicOrConcept || null,\n    question_id: source.question_id || source.questionId || null,\n    text: source.text || source.content || source.note || \"\",\n    metadata: source.metadata || {}\n  });\n});\n\nrawMistakes.forEach((source, index) => {\n  profileSources.push({\n    source_id: source.source_id || source.sourceId || `mistake_${String(index + 1).padStart(3, \"0\")}`,\n    source_type: source.source_type || source.sourceType || \"mistake_record\",\n    topic: source.topic || source.topic_or_concept || source.topicOrConcept || null,\n    question_id: source.question_id || source.questionId || source.id || null,\n    text: source.text || source.content || source.note || source.explanation || \"\",\n    metadata: source.metadata || {}\n  });\n});\n\nconst daysLeft = timeConstraints.days_left ?? timeConstraints.daysLeft ?? body.days_left ?? body.daysLeft ?? null;\nconst hoursPerDay = timeConstraints.hours_per_day ?? timeConstraints.hoursPerDay ?? body.hours_per_day ?? body.hoursPerDay ?? null;\nconst explicitTotalHours = timeConstraints.estimated_total_hours ?? timeConstraints.estimatedTotalHours ?? body.estimated_total_hours ?? body.estimatedTotalHours ?? body.available_hours ?? body.availableHours ?? null;\nconst estimatedTotalHours = explicitTotalHours ?? ((Number.isFinite(Number(daysLeft)) && Number.isFinite(Number(hoursPerDay))) ? Number(daysLeft) * Number(hoursPerDay) : null);\n\nconst normalizedTimeConstraints = {\n  days_left: daysLeft,\n  hours_per_day: hoursPerDay,\n  estimated_total_hours: estimatedTotalHours,\n  unavailable_periods: timeConstraints.unavailable_periods || timeConstraints.unavailablePeriods || [],\n  deadline: timeConstraints.deadline || body.deadline || null,\n  raw: timeConstraints\n};\n\nreturn [{\n  json: {\n    workflow_name: \"student_profile_agent\",\n    course_id: courseId,\n    course_name: courseName,\n    student_id: studentId,\n    profile_input_summary: {\n      self_assessment_count: rawSelfAssessments.length + (studentText ? 1 : 0),\n      mistake_record_count: rawMistakes.length,\n      has_time_constraints: Object.keys(timeConstraints).length > 0 || daysLeft !== null || hoursPerDay !== null || explicitTotalHours !== null,\n      has_target: Boolean(targetLevel),\n      total_profile_sources: profileSources.length\n    },\n    target_level_hint: targetLevel,\n    profile_sources: profileSources,\n    time_constraints: normalizedTimeConstraints,\n    constraints: {\n      no_exam_prediction: true,\n      no_score_prediction: true,\n      no_final_review_plan: true,\n      no_medical_or_psychological_diagnosis: true,\n      evidence_required_for_each_weakness: true\n    }\n  }\n}];"
+      },
+      "id": "d4a27b31-7c05-46be-9f24-0e1d2f04c003",
+      "name": "Normalize Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2896,
+        832
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\n\nconst profilePreview = (data.profile_sources || []).map(source => ({\n  source_id: source.source_id,\n  source_type: source.source_type,\n  topic: source.topic,\n  question_id: source.question_id,\n  metadata: source.metadata,\n  text: (source.text || \"\").slice(0, 5000)\n}));\n\nconst systemPrompt = `You are Student Profile Agent in CourseLens, a multi-agent course review system.\n\nYour only job is to build an evidence-grounded student profile from self-assessments, mistake records, time constraints, target level, and learning preferences.\n\nRules:\n1. Extract student profile information only: self-assessed mastery, weaknesses, mistake patterns, time constraints, learning preferences, and learning-risk flags.\n2. Every weakness and mistake pattern should include evidence from the provided student input or mistake records when possible.\n3. Do not generate a complete review plan or day-by-day schedule.\n4. Do not predict exam questions.\n5. Do not predict the student's final score or guarantee any target outcome.\n6. Do not make medical or psychological diagnoses. Treat emotion or anxiety signals only as learning constraints or risk flags.\n7. Do not fuse with course materials, lecture signals, or exam patterns. This agent only describes the student state.\n8. If information is weak, ambiguous, or missing, mark it in uncertainties.\n9. Return valid JSON only. Do not wrap it in Markdown. Do not add explanations outside JSON.`;\n\nconst userPrompt = `Build a Student Profile Map for the course below.\n\nCourse ID: ${data.course_id}\nCourse name: ${data.course_name}\nStudent ID: ${data.student_id}\n\nProfile input summary:\n${JSON.stringify(data.profile_input_summary, null, 2)}\n\nTarget level hint:\n${JSON.stringify(data.target_level_hint, null, 2)}\n\nTime constraints:\n${JSON.stringify(data.time_constraints, null, 2)}\n\nProfile sources:\n${JSON.stringify(profilePreview, null, 2)}\n\nReturn this exact JSON shape:\n{\n  \"workflow_name\": \"student_profile_agent\",\n  \"course_id\": \"${data.course_id}\",\n  \"course_name\": \"${data.course_name}\",\n  \"student_id\": \"${data.student_id}\",\n  \"profile_summary\": {\n    \"target_level\": \"string_or_null\",\n    \"available_study_time_hours\": number_or_null,\n    \"overall_self_confidence\": \"unknown | low | medium | high | mixed\",\n    \"main_constraints\": [\"string\"]\n  },\n  \"knowledge_self_assessment\": [\n    {\n      \"topic_or_concept\": \"string\",\n      \"self_assessed_level\": \"unknown | low | medium | high | mixed\",\n      \"confidence\": 0.75,\n      \"evidence\": [\n        {\n          \"source_id\": \"string\",\n          \"source_type\": \"student_text | self_assessment | mistake_record | wrong_question | other\",\n          \"evidence_text\": \"short direct evidence from the student input\"\n        }\n      ],\n      \"notes\": \"string\"\n    }\n  ],\n  \"weaknesses\": [\n    {\n      \"weakness_id\": \"stable short id such as sw_001\",\n      \"topic_or_concept\": \"string\",\n      \"weakness_type\": \"conceptual | calculation | application | memory | comparison | analysis | confidence | time_management | unknown\",\n      \"severity\": \"low | medium | high\",\n      \"confidence\": 0.85,\n      \"evidence\": [\n        {\n          \"source_id\": \"string\",\n          \"source_type\": \"student_text | self_assessment | mistake_record | wrong_question | other\",\n          \"evidence_text\": \"short direct evidence from the student input\"\n        }\n      ],\n      \"likely_reason\": \"string_or_null\"\n    }\n  ],\n  \"mistake_patterns\": [\n    {\n      \"pattern_id\": \"stable short id such as mp_001\",\n      \"topic_or_concept\": \"string\",\n      \"mistake_type\": \"concept_confusion | formula_application | calculation_error | memory_gap | method_selection | interpretation_error | unknown\",\n      \"related_questions\": [\"question_id\"],\n      \"summary\": \"string\",\n      \"evidence\": [\n        {\n          \"source_id\": \"string\",\n          \"source_type\": \"mistake_record | wrong_question | student_text | other\",\n          \"evidence_text\": \"short direct evidence from the mistake record\"\n        }\n      ]\n    }\n  ],\n  \"time_profile\": {\n    \"days_left\": number_or_null,\n    \"hours_per_day\": number_or_null,\n    \"estimated_total_hours\": number_or_null,\n    \"time_pressure\": \"unknown | low | medium | high\",\n    \"notes\": \"string\"\n  },\n  \"learning_preferences\": {\n    \"preferred_methods\": [\"string\"],\n    \"avoid_methods\": [\"string\"],\n    \"evidence\": [\n      {\n        \"source_id\": \"string\",\n        \"source_type\": \"string\",\n        \"evidence_text\": \"short direct evidence\"\n      }\n    ]\n  },\n  \"risk_flags\": [\n    {\n      \"risk_type\": \"limited_time | broad_weakness | low_confidence | missing_information | high_target_pressure | unbalanced_profile\",\n      \"severity\": \"low | medium | high\",\n      \"description\": \"string\",\n      \"evidence\": [\n        {\n          \"source_id\": \"string\",\n          \"source_type\": \"string\",\n          \"evidence_text\": \"short direct evidence\"\n        }\n      ]\n    }\n  ],\n  \"uncertainties\": [\"string\"]\n}\n\nQuality requirements:\n- Use source_id and source_type exactly as given.\n- Keep evidence_text short.\n- Confidence must be between 0 and 1.\n- Do not create a detailed review schedule.\n- Do not predict the student's score.\n- If target level is mentioned, summarize it as a goal, not as a predicted outcome.\n- If emotional language appears, describe it only as a learning risk or constraint, not as a diagnosis.`;\n\nreturn [{\n  json: {\n    ...data,\n    llm_payload: {\n      system_prompt: systemPrompt,\n      user_prompt: userPrompt\n    }\n  }\n}];"
+      },
+      "id": "d4a27b31-7c05-46be-9f24-0e1d2f04c004",
+      "name": "Build LLM Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3168,
+        832
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.jinmaoapi.top/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{ \"Bearer \" + $env.OPENAI_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ model: \"gpt-5.5\", temperature: 0.2, messages: [ { role: \"system\", content: $json.llm_payload.system_prompt }, { role: \"user\", content: $json.llm_payload.user_prompt } ] }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3440,
+        832
+      ],
+      "id": "d4a27b31-7c05-46be-9f24-0e1d2f04c005",
+      "name": "HTTP OpenAI - Build Student Profile"
+    },
+    {
+      "parameters": {
+        "jsCode": "const llmResult = $input.first().json;\n\nfunction pickRawOutput(value) {\n  if (typeof value === \"string\") return value;\n  if (value?.output !== undefined) return value.output;\n  if (value?.response?.text !== undefined) return value.response.text;\n  if (value?.generations?.[0]?.[0]?.text !== undefined) return value.generations[0][0].text;\n  if (value?.choices?.[0]?.message?.content !== undefined) return value.choices[0].message.content;\n  if (value?.text !== undefined) return value.text;\n  if (value?.response !== undefined) return value.response;\n  if (value?.message?.content !== undefined) return value.message.content;\n  return value;\n}\n\nfunction stripCodeFence(text) {\n  return text\n    .replace(/^```(?:json)?\\s*/i, \"\")\n    .replace(/\\s*```$/i, \"\")\n    .trim();\n}\n\nfunction parseJsonLoose(raw) {\n  if (raw && typeof raw === \"object\") {\n    if (raw.workflow_name || raw.profile_summary || raw.weaknesses) return raw;\n    raw = JSON.stringify(raw);\n  }\n\n  let text = String(raw ?? \"\").trim();\n  text = stripCodeFence(text);\n\n  try {\n    return JSON.parse(text);\n  } catch (firstError) {\n    const start = text.indexOf(\"{\");\n    const end = text.lastIndexOf(\"}\");\n    if (start >= 0 && end > start) {\n      const candidate = text.slice(start, end + 1);\n      return JSON.parse(candidate);\n    }\n    throw firstError;\n  }\n}\n\nlet parsed;\ntry {\n  parsed = parseJsonLoose(pickRawOutput(llmResult));\n} catch (error) {\n  return [{\n    json: {\n      workflow_name: \"student_profile_agent\",\n      parser_error: true,\n      error_message: error.message,\n      raw_llm_output: llmResult\n    }\n  }];\n}\n\nparsed.workflow_name = parsed.workflow_name || \"student_profile_agent\";\nparsed.profile_summary = parsed.profile_summary || {};\nparsed.knowledge_self_assessment = Array.isArray(parsed.knowledge_self_assessment) ? parsed.knowledge_self_assessment : [];\nparsed.weaknesses = Array.isArray(parsed.weaknesses) ? parsed.weaknesses : [];\nparsed.mistake_patterns = Array.isArray(parsed.mistake_patterns) ? parsed.mistake_patterns : [];\nparsed.time_profile = parsed.time_profile || {};\nparsed.learning_preferences = parsed.learning_preferences || { preferred_methods: [], avoid_methods: [], evidence: [] };\nparsed.risk_flags = Array.isArray(parsed.risk_flags) ? parsed.risk_flags : [];\nparsed.uncertainties = Array.isArray(parsed.uncertainties) ? parsed.uncertainties : [];\nparsed._agent_meta = {\n  parsed_at: new Date().toISOString(),\n  node: \"Parse OpenAI JSON\"\n};\n\nreturn [{ json: parsed }];"
+      },
+      "id": "d4a27b31-7c05-46be-9f24-0e1d2f04c006",
+      "name": "Parse OpenAI JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3792,
+        832
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "d4a27b31-7c05-46be-9f24-0e1d2f04c007",
+      "name": "Respond - Student Profile Map",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        4048,
+        832
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook - Receive Student Data": {
+      "main": [
+        [
+          {
+            "node": "Normalize Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Input": {
+      "main": [
+        [
+          {
+            "node": "Build LLM Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build LLM Prompt": {
+      "main": [
+        [
+          {
+            "node": "HTTP OpenAI - Build Student Profile",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP OpenAI - Build Student Profile": {
+      "main": [
+        [
+          {
+            "node": "Parse OpenAI JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse OpenAI JSON": {
+      "main": [
+        [
+          {
+            "node": "Respond - Student Profile Map",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "d4a27b31-7c05-46be-9f24-0e1d2f04c008",
+  "meta": {
+    "instanceId": "3f9be7f6047d75e769a4766192c647b7334f96d0db74013fe718e9c11646cd32"
+  },
+  "id": "studentProfileAgentV1",
+  "tags": [
+    {
+      "updatedAt": "2026-07-04T12:15:00.000Z",
+      "createdAt": "2026-07-04T12:15:00.000Z",
+      "id": "CourseLensTag",
+      "name": "CourseLens"
+    },
+    {
+      "updatedAt": "2026-07-04T12:15:00.000Z",
+      "createdAt": "2026-07-04T12:15:00.000Z",
+      "id": "AgentWorkflowTag",
+      "name": "AgentWorkflow"
+    }
+  ]
+}

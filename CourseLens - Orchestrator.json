@@ -1,0 +1,507 @@
+﻿{
+    "name":  "CourseLens - 07 Orchestrator v1 Rule-Routed HTTP",
+    "nodes":  [
+                  {
+                      "parameters":  {
+                                         "content":  "CourseLens Orchestrator v1\n\nPurpose:\nRule-routed total-control workflow for CourseLens.\n\nScope:\n- Receives user request plus already-extracted text inputs.\n- Builds a deterministic routing plan.\n- Dynamically calls the four upstream extraction/profile agents.\n- Sends available outputs to Evidence Fusion Agent.\n- Sends fusion result and user demand to Review Strategy / Critic Agent.\n\nBoundary:\nThe orchestrator does not generate final review advice directly and does not parse raw PDF/PPT/audio files.",
+                                         "height":  360,
+                                         "width":  460,
+                                         "color":  4
+                                     },
+                      "id":  "07or0001-0000-4000-8000-000000000001",
+                      "name":  "Workflow Note",
+                      "type":  "n8n-nodes-base.stickyNote",
+                      "typeVersion":  1,
+                      "position":  [
+                                       100,
+                                       300
+                                   ]
+                  },
+                  {
+                      "parameters":  {
+                                         "httpMethod":  "POST",
+                                         "path":  "courselens-orchestrator",
+                                         "responseMode":  "responseNode",
+                                         "options":  {
+
+                                                     }
+                                     },
+                      "id":  "07or0001-0000-4000-8000-000000000002",
+                      "name":  "Webhook - Receive CourseLens Request",
+                      "type":  "n8n-nodes-base.webhook",
+                      "typeVersion":  2,
+                      "position":  [
+                                       620,
+                                       520
+                                   ],
+                      "webhookId":  "courselens-orchestrator"
+                  },
+                  {
+                      "parameters":  {
+                                         "jsCode":  "const incoming = $input.first()?.json ?? {};\nconst body = incoming.body ?? incoming;\n\nfunction firstPresent(...values) {\n  return values.find(value =\u003e value !== undefined \u0026\u0026 value !== null \u0026\u0026 value !== \"\");\n}\n\nfunction asArray(value) {\n  if (Array.isArray(value)) return value;\n  if (value === undefined || value === null || value === \"\") return [];\n  return [value];\n}\n\nfunction compactArray(value) {\n  return asArray(value).filter(item =\u003e item !== undefined \u0026\u0026 item !== null \u0026\u0026 item !== \"\");\n}\n\nfunction numberOrNull(value) {\n  if (value === undefined || value === null || value === \"\") return null;\n  const n = Number(value);\n  return Number.isFinite(n) ? n : null;\n}\n\nfunction hasAny(text, terms) {\n  const t = String(text || \"\").toLowerCase();\n  return terms.some(term =\u003e t.includes(String(term).toLowerCase()));\n}\n\nfunction inferTimeFromText(text) {\n  const t = String(text || \"\");\n  const result = {};\n\n  const dayMatch = t.match(/(?:days_left|daysLeft|day|days)\\D{0,8}(\\d{1,3})/i)\n    || t.match(/(\\d{1,3})\\s*(?:day|days)/i)\n    || t.match(/(\\d{1,3})\\s*\\u5929/u);\n\n  const hourPerDayMatch = t.match(/(?:hours_per_day|hoursPerDay)\\D{0,8}(\\d{1,3})/i)\n    || t.match(/(?:every day|per day|daily)\\D{0,12}(\\d{1,3})\\s*(?:hour|hours|h)/i)\n    || t.match(/(?:\\u6bcf\\u5929|\\u6bcf\\u65e5|\\u4e00\\u5929)\\D{0,12}(\\d{1,3})\\s*(?:\\u5c0f\\u65f6|h)/u)\n    || t.match(/(\\d{1,3})\\s*(?:\\u5c0f\\u65f6|h)\\D{0,12}(?:\\u6bcf\\u5929|\\u6bcf\\u65e5|\\u4e00\\u5929)/u);\n\n  const totalHourMatch = t.match(/(?:total_hours|totalHours|estimated_total_hours|estimatedTotalHours)\\D{0,8}(\\d{1,3})/i)\n    || t.match(/(?:total|overall)\\D{0,12}(\\d{1,3})\\s*(?:hour|hours|h)/i)\n    || t.match(/(?:\\u603b\\u5171|\\u4e00\\u5171|\\u603b\\u8ba1)\\D{0,12}(\\d{1,3})\\s*(?:\\u5c0f\\u65f6|h)/u);\n\n  if (dayMatch) result.days_left = Number(dayMatch[1]);\n  if (hourPerDayMatch) result.hours_per_day = Number(hourPerDayMatch[1]);\n  if (totalHourMatch) result.estimated_total_hours = Number(totalHourMatch[1]);\n  if (result.estimated_total_hours === undefined \u0026\u0026 result.days_left !== undefined \u0026\u0026 result.hours_per_day !== undefined) {\n    result.estimated_total_hours = result.days_left * result.hours_per_day;\n  }\n  return result;\n}\n\nfunction inferPreferredFocus(text) {\n  const focus = [];\n  if (hasAny(text, [\"calculation\", \"compute\", \"numerical\", \"formula\", \"sigmoid\", \"\\u8ba1\\u7b97\", \"\\u4ee3\\u5165\", \"\\u516c\\u5f0f\"])) focus.push(\"calculation\");\n  if (hasAny(text, [\"concept\", \"understanding\", \"definition\", \"short answer\", \"\\u6982\\u5ff5\", \"\\u7406\\u89e3\", \"\\u5b9a\\u4e49\", \"\\u7b80\\u7b54\"])) focus.push(\"understanding\");\n  if (hasAny(text, [\"application\", \"problem\", \"practice\", \"\\u5e94\\u7528\", \"\\u9898\\u76ee\", \"\\u505a\\u9898\"])) focus.push(\"application\");\n  if (hasAny(text, [\"derive\", \"derivation\", \"proof\", \"\\u8bc1\\u660e\", \"\\u63a8\\u5bfc\"])) focus.push(\"derivation\");\n  if (hasAny(text, [\"program\", \"coding\", \"implementation\", \"\\u7f16\\u7a0b\", \"\\u4ee3\\u7801\", \"\\u5b9e\\u73b0\"])) focus.push(\"implementation\");\n  return [...new Set(focus)];\n}\n\nfunction inferPreferredOutput(text) {\n  const output = [];\n  if (hasAny(text, [\"schedule\", \"plan\", \"daily\", \"\\u8ba1\\u5212\", \"\\u5b89\\u6392\", \"\\u65e5\\u7a0b\", \"\\u6bcf\\u5929\"])) output.push(\"daily_schedule\");\n  if (hasAny(text, [\"checklist\", \"list\", \"\\u6e05\\u5355\", \"\\u5217\\u8868\"])) output.push(\"priority_checklist\");\n  if (hasAny(text, [\"priority\", \"focus\", \"\\u91cd\\u70b9\", \"\\u4f18\\u5148\"])) output.push(\"priority_focus\");\n  return [...new Set(output.length ? output : [\"priority_checklist\"] )];\n}\n\nfunction inferGoal(text) {\n  if (hasAny(text, [\"schedule\", \"plan\", \"how to review\", \"\\u8ba1\\u5212\", \"\\u5b89\\u6392\", \"\\u600e\\u4e48\\u590d\\u4e60\"])) return \"review_planning\";\n  if (hasAny(text, [\"priority\", \"focus\", \"high frequency\", \"\\u91cd\\u70b9\", \"\\u4f18\\u5148\", \"\\u9ad8\\u9891\"])) return \"priority_focus\";\n  if (hasAny(text, [\"score\", \"grade\", \"\\u63d0\\u5206\", \"\\u5206\\u6570\", \"\\u6210\\u7ee9\"])) return \"score_improvement\";\n  return \"course_review\";\n}\n\nconst userMessage = firstPresent(body.user_message, body.userMessage, body.message, body.raw_request, body.rawRequest, body.text, \"\");\nconst directTime = firstPresent(body.time_constraints, body.timeConstraints, body.available_time, body.availableTime, {});\nconst inferredTime = inferTimeFromText(userMessage);\nconst daysLeft = numberOrNull(firstPresent(directTime.days_left, directTime.daysLeft, body.days_left, body.daysLeft, inferredTime.days_left));\nconst hoursPerDay = numberOrNull(firstPresent(directTime.hours_per_day, directTime.hoursPerDay, body.hours_per_day, body.hoursPerDay, inferredTime.hours_per_day));\nconst explicitTotal = numberOrNull(firstPresent(directTime.estimated_total_hours, directTime.estimatedTotalHours, directTime.total_hours, directTime.totalHours, body.estimated_total_hours, body.estimatedTotalHours, inferredTime.estimated_total_hours));\nconst estimatedTotal = explicitTotal ?? ((daysLeft !== null \u0026\u0026 hoursPerDay !== null) ? daysLeft * hoursPerDay : null);\n\nconst courseId = firstPresent(body.course_id, body.courseId, \"course_unknown\");\nconst courseName = firstPresent(body.course_name, body.courseName, \"Unknown Course\");\nconst studentId = firstPresent(body.student_id, body.studentId, \"student_unknown\");\nconst agentBaseUrl = String(firstPresent(body.agent_base_url, body.agentBaseUrl, \"http://localhost:5678/webhook\")).replace(/\\/$/, \"\");\n\nconst materials = compactArray(firstPresent(body.materials, body.course_materials, body.courseMaterials, []));\nconst lectures = [\n  ...compactArray(firstPresent(body.lectures, [])),\n  ...compactArray(firstPresent(body.lecture_notes, body.lectureNotes, [])),\n  ...compactArray(firstPresent(body.transcripts, [])),\n  ...compactArray(firstPresent(body.notes, []))\n];\nconst pastExams = [\n  ...compactArray(firstPresent(body.past_exams, body.pastExams, [])),\n  ...compactArray(firstPresent(body.exam_sets, body.examSets, []))\n];\nconst questions = [\n  ...compactArray(firstPresent(body.questions, [])),\n  ...compactArray(firstPresent(body.exam_questions, body.examQuestions, []))\n];\nconst studentInputs = [\n  ...compactArray(firstPresent(body.student_inputs, body.studentInputs, [])),\n  ...compactArray(firstPresent(body.self_assessments, body.selfAssessments, []))\n];\nconst mistakeRecords = [\n  ...compactArray(firstPresent(body.mistake_records, body.mistakeRecords, [])),\n  ...compactArray(firstPresent(body.wrong_questions, body.wrongQuestions, [])),\n  ...compactArray(firstPresent(body.mistakes, []))\n];\n\nconst userReviewRequestInput = firstPresent(body.user_review_request, body.userReviewRequest, body.review_request, body.reviewRequest, {});\nconst preferredFocus = compactArray(firstPresent(userReviewRequestInput.preferred_focus, userReviewRequestInput.preferredFocus, body.preferred_focus, body.preferredFocus, inferPreferredFocus(userMessage)));\nconst preferredOutput = compactArray(firstPresent(userReviewRequestInput.preferred_output, userReviewRequestInput.preferredOutput, body.preferred_output, body.preferredOutput, inferPreferredOutput(userMessage)));\nconst strategyOptionsInput = firstPresent(body.strategy_options, body.strategyOptions, {});\n\nconst userReviewRequest = {\n  raw_request: firstPresent(userReviewRequestInput.raw_request, userReviewRequestInput.rawRequest, userReviewRequestInput.text, userMessage, \"\"),\n  goal: firstPresent(userReviewRequestInput.goal, body.goal, inferGoal(userMessage)),\n  target_level: firstPresent(userReviewRequestInput.target_level, userReviewRequestInput.targetLevel, userReviewRequestInput.target_score, userReviewRequestInput.targetScore, body.target_level, body.targetLevel, body.target_score, body.targetScore, null),\n  available_time: {\n    days_left: daysLeft,\n    hours_per_day: hoursPerDay,\n    estimated_total_hours: estimatedTotal\n  },\n  preferred_focus: preferredFocus,\n  preferred_output: preferredOutput,\n  constraints: compactArray(firstPresent(userReviewRequestInput.constraints, body.constraints, [])),\n  language: firstPresent(userReviewRequestInput.language, strategyOptionsInput.language, body.language, \"zh\")\n};\n\nconst strategyOptions = {\n  planning_style: firstPresent(strategyOptionsInput.planning_style, strategyOptionsInput.planningStyle, \"time_boxed\"),\n  risk_tolerance: firstPresent(strategyOptionsInput.risk_tolerance, strategyOptionsInput.riskTolerance, \"conservative\"),\n  max_focus_items: numberOrNull(firstPresent(strategyOptionsInput.max_focus_items, strategyOptionsInput.maxFocusItems, 8)),\n  include_daily_plan: firstPresent(strategyOptionsInput.include_daily_plan, strategyOptionsInput.includeDailyPlan, preferredOutput.includes(\"daily_schedule\")),\n  include_low_confidence_items: firstPresent(strategyOptionsInput.include_low_confidence_items, strategyOptionsInput.includeLowConfidenceItems, true),\n  include_checklist: firstPresent(strategyOptionsInput.include_checklist, strategyOptionsInput.includeChecklist, preferredOutput.includes(\"priority_checklist\")),\n  language: userReviewRequest.language\n};\n\nreturn [{\n  json: {\n    workflow_name: \"courselens_orchestrator\",\n    course_id: courseId,\n    course_name: courseName,\n    student_id: studentId,\n    user_message: userMessage,\n    materials,\n    lectures,\n    past_exams: pastExams,\n    questions,\n    student_inputs: studentInputs,\n    mistake_records: mistakeRecords,\n    student_text: firstPresent(body.student_text, body.studentText, \"\"),\n    time_constraints: {\n      days_left: daysLeft,\n      hours_per_day: hoursPerDay,\n      estimated_total_hours: estimatedTotal,\n      deadline: firstPresent(directTime.deadline, body.deadline, null)\n    },\n    user_review_request: userReviewRequest,\n    strategy_options: strategyOptions,\n    orchestrator_config: {\n      agent_base_url: agentBaseUrl,\n      include_debug_outputs: Boolean(firstPresent(body.include_debug_outputs, body.includeDebugOutputs, false)),\n      fusion_options: firstPresent(body.fusion_options, body.fusionOptions, {\n        max_focus_candidates: 10,\n        allow_low_evidence_candidates: true\n      })\n    }\n  }\n}];"
+                                     },
+                      "id":  "07or0001-0000-4000-8000-000000000003",
+                      "name":  "Normalize Orchestrator Input",
+                      "type":  "n8n-nodes-base.code",
+                      "typeVersion":  2,
+                      "position":  [
+                                       900,
+                                       520
+                                   ]
+                  },
+                  {
+                      "parameters":  {
+                                         "jsCode":  "const data = $input.first().json;\n\nfunction hasTextItems(items) {\n  return Array.isArray(items) \u0026\u0026 items.some(item =\u003e {\n    if (typeof item === \"string\") return item.trim().length \u003e 0;\n    return Boolean(item?.text || item?.content || item?.question_text || item?.questionText || item?.description);\n  });\n}\n\nfunction hasObjectValues(obj) {\n  return obj \u0026\u0026 typeof obj === \"object\" \u0026\u0026 Object.values(obj).some(value =\u003e value !== null \u0026\u0026 value !== undefined \u0026\u0026 value !== \"\");\n}\n\nfunction hasAny(text, terms) {\n  const t = String(text || \"\").toLowerCase();\n  return terms.some(term =\u003e t.includes(String(term).toLowerCase()));\n}\n\nconst studentSignalText = [data.user_message, data.student_text].filter(Boolean).join(\" \");\nconst hasStudentSignal = hasTextItems(data.student_inputs)\n  || hasTextItems(data.mistake_records)\n  || hasObjectValues(data.time_constraints)\n  || hasAny(studentSignalText, [\n    \"mistake\", \"weak\", \"goal\", \"exam\", \"review\", \"hour\", \"day\", \"score\",\n    \"\\u6211\", \"\\u4e0d\\u4f1a\", \"\\u4e0d\\u61c2\", \"\\u9519\", \"\\u8584\\u5f31\", \"\\u76ee\\u6807\", \"\\u5206\", \"\\u8003\\u8bd5\", \"\\u590d\\u4e60\", \"\\u5929\", \"\\u5c0f\\u65f6\"\n  ]);\n\nconst shouldCall = {\n  course_material_agent: hasTextItems(data.materials),\n  lecture_signal_agent: hasTextItems(data.lectures),\n  exam_pattern_agent: hasTextItems(data.past_exams) || hasTextItems(data.questions),\n  student_profile_agent: hasStudentSignal\n};\n\nconst agentReasons = {\n  course_material_agent: shouldCall.course_material_agent ? \"Course material text was provided.\" : \"No course materials were provided.\",\n  lecture_signal_agent: shouldCall.lecture_signal_agent ? \"Lecture notes or transcripts were provided.\" : \"No lecture notes or transcripts were provided.\",\n  exam_pattern_agent: shouldCall.exam_pattern_agent ? \"Past exams, exam sets, or questions were provided.\" : \"No past exams, exam sets, or questions were provided.\",\n  student_profile_agent: shouldCall.student_profile_agent ? \"Student request, self-assessment, mistakes, target, or time constraints were provided.\" : \"No student profile signals were provided.\"\n};\n\nconst calledAgents = Object.entries(shouldCall).filter(([, yes]) =\u003e yes).map(([name]) =\u003e name);\nconst skippedAgents = Object.entries(shouldCall)\n  .filter(([, yes]) =\u003e !yes)\n  .map(([agent_name]) =\u003e ({ agent_name, reason: agentReasons[agent_name] }));\n\nconst warnings = [];\nif (!shouldCall.course_material_agent \u0026\u0026 !shouldCall.exam_pattern_agent \u0026\u0026 !shouldCall.lecture_signal_agent) {\n  warnings.push(\"No course-side evidence was provided. Any final review advice must be treated as low-evidence and should request course materials, lecture notes, or past exams.\");\n}\nif (!shouldCall.student_profile_agent) {\n  warnings.push(\"No student-specific evidence was provided, so personalization will be limited.\");\n}\n\nreturn [{\n  json: {\n    ...data,\n    routing_plan: {\n      should_call: shouldCall,\n      called_agents: calledAgents,\n      skipped_agents: skippedAgents,\n      agent_reasons: agentReasons,\n      no_upstream_calls: calledAgents.length === 0\n    },\n    evidence_coverage: {\n      has_course_materials: shouldCall.course_material_agent,\n      has_lecture_signals: shouldCall.lecture_signal_agent,\n      has_exam_patterns: shouldCall.exam_pattern_agent,\n      has_student_profile: shouldCall.student_profile_agent\n    },\n    orchestrator_warnings: warnings\n  }\n}];"
+                                     },
+                      "id":  "07or0001-0000-4000-8000-000000000004",
+                      "name":  "Build Routing Plan",
+                      "type":  "n8n-nodes-base.code",
+                      "typeVersion":  2,
+                      "position":  [
+                                       1180,
+                                       520
+                                   ]
+                  },
+                  {
+                      "parameters":  {
+                                         "jsCode":  "const data = $input.first().json;\nconst base = data.orchestrator_config.agent_base_url;\nconst requests = [];\n\nfunction url(path) {\n  return `${base}/${path}`;\n}\n\nif (data.routing_plan.should_call.course_material_agent) {\n  requests.push({\n    agent_name: \"course_material_agent\",\n    agent_url: url(\"course-material-agent\"),\n    request_body: {\n      course_id: data.course_id,\n      course_name: data.course_name,\n      materials: data.materials\n    }\n  });\n}\n\nif (data.routing_plan.should_call.lecture_signal_agent) {\n  requests.push({\n    agent_name: \"lecture_signal_agent\",\n    agent_url: url(\"lecture-signal-agent\"),\n    request_body: {\n      course_id: data.course_id,\n      course_name: data.course_name,\n      lectures: data.lectures\n    }\n  });\n}\n\nif (data.routing_plan.should_call.exam_pattern_agent) {\n  requests.push({\n    agent_name: \"exam_pattern_agent\",\n    agent_url: url(\"exam-pattern-agent\"),\n    request_body: {\n      course_id: data.course_id,\n      course_name: data.course_name,\n      past_exams: data.past_exams,\n      questions: data.questions\n    }\n  });\n}\n\nif (data.routing_plan.should_call.student_profile_agent) {\n  requests.push({\n    agent_name: \"student_profile_agent\",\n    agent_url: url(\"student-profile-agent\"),\n    request_body: {\n      course_id: data.course_id,\n      course_name: data.course_name,\n      student_id: data.student_id,\n      student_inputs: data.student_inputs,\n      mistake_records: data.mistake_records,\n      student_text: data.student_text || data.user_message || \"\",\n      time_constraints: data.time_constraints,\n      target_level: data.user_review_request.target_level\n    }\n  });\n}\n\nif (!requests.length) {\n  return [{\n    json: {\n      skip_all: true,\n      reason: \"No routable upstream evidence or student signal was provided.\"\n    }\n  }];\n}\n\nreturn requests.map(request =\u003e ({ json: request }));"
+                                     },
+                      "id":  "07or0001-0000-4000-8000-000000000005",
+                      "name":  "Build Upstream Agent Requests",
+                      "type":  "n8n-nodes-base.code",
+                      "typeVersion":  2,
+                      "position":  [
+                                       1460,
+                                       520
+                                   ]
+                  },
+                  {
+                      "parameters":  {
+                                         "conditions":  {
+                                                            "options":  {
+                                                                            "caseSensitive":  true,
+                                                                            "leftValue":  "",
+                                                                            "typeValidation":  "strict"
+                                                                        },
+                                                            "conditions":  [
+                                                                               {
+                                                                                   "id":  "07or-condition-has-calls",
+                                                                                   "leftValue":  "={{ $json.skip_all }}",
+                                                                                   "rightValue":  true,
+                                                                                   "operator":  {
+                                                                                                    "type":  "boolean",
+                                                                                                    "operation":  "notEquals"
+                                                                                                }
+                                                                               }
+                                                                           ],
+                                                            "combinator":  "and"
+                                                        },
+                                         "options":  {
+
+                                                     }
+                                     },
+                      "id":  "07or0001-0000-4000-8000-000000000006",
+                      "name":  "IF - Has Upstream Agent Calls",
+                      "type":  "n8n-nodes-base.if",
+                      "typeVersion":  2.2,
+                      "position":  [
+                                       1740,
+                                       520
+                                   ]
+                  },
+                  {
+                      "parameters":  {
+                                         "method":  "POST",
+                                         "url":  "={{ $json.agent_url }}",
+                                         "sendHeaders":  true,
+                                         "headerParameters":  {
+                                                                  "parameters":  [
+                                                                                     {
+                                                                                         "name":  "Content-Type",
+                                                                                         "value":  "application/json"
+                                                                                     }
+                                                                                 ]
+                                                              },
+                                         "sendBody":  true,
+                                         "contentType":  "raw",
+                                         "rawContentType":  "application/json",
+                                         "body":  "={{ JSON.stringify($json.request_body) }}",
+                                         "options":  {
+
+                                                     }
+                                     },
+                      "id":  "07or0001-0000-4000-8000-000000000007",
+                      "name":  "HTTP - Call Routed Upstream Agent",
+                      "type":  "n8n-nodes-base.httpRequest",
+                      "typeVersion":  4.2,
+                      "position":  [
+                                       2040,
+                                       420
+                                   ],
+                      "continueOnFail":  true
+                  },
+                  {
+                      "parameters":  {
+                                         "jsCode":  "const context = $(\"Build Routing Plan\").first().json;\nconst requestItems = $(\"Build Upstream Agent Requests\").all()\n  .map(item =\u003e item.json)\n  .filter(item =\u003e !item.skip_all);\nconst responseItems = $input.all().map(item =\u003e item.json);\n\nconst outputsByAgent = {};\nconst warnings = [...(context.orchestrator_warnings || [])];\n\nfor (let i = 0; i \u003c requestItems.length; i++) {\n  const request = requestItems[i];\n  const response = responseItems[i] ?? {};\n  const hasError = Boolean(response.error || response.message?.includes?.(\"ECONN\") || response.statusCode \u003e= 400);\n  const output = hasError ? null : response;\n  outputsByAgent[request.agent_name] = {\n    agent_name: request.agent_name,\n    status: hasError ? \"failed\" : \"available\",\n    reason: hasError ? (response.error?.message || response.message || \"The upstream workflow call failed.\") : \"Upstream workflow returned a response.\",\n    output\n  };\n  if (hasError) warnings.push(`${request.agent_name} failed and will be treated as missing evidence.`);\n}\n\nfor (const skipped of context.routing_plan.skipped_agents || []) {\n  outputsByAgent[skipped.agent_name] = {\n    agent_name: skipped.agent_name,\n    status: \"not_provided\",\n    reason: skipped.reason,\n    output: null\n  };\n}\n\nconst fixedOrder = [\"course_material_agent\", \"lecture_signal_agent\", \"exam_pattern_agent\", \"student_profile_agent\"];\nconst availableAgentOutputs = fixedOrder.map(agentName =\u003e outputsByAgent[agentName] || {\n  agent_name: agentName,\n  status: \"not_provided\",\n  reason: \"No input was routed to this agent.\",\n  output: null\n});\n\nreturn [{\n  json: {\n    workflow_name: \"courselens_orchestrator\",\n    course_id: context.course_id,\n    course_name: context.course_name,\n    student_id: context.student_id,\n    user_review_request: context.user_review_request,\n    strategy_options: context.strategy_options,\n    orchestrator_config: context.orchestrator_config,\n    routing_summary: {\n      called_agents: context.routing_plan.called_agents,\n      skipped_agents: context.routing_plan.skipped_agents,\n      upstream_status: availableAgentOutputs.map(item =\u003e ({\n        agent_name: item.agent_name,\n        status: item.status,\n        reason: item.reason\n      }))\n    },\n    evidence_coverage: context.evidence_coverage,\n    available_agent_outputs: availableAgentOutputs,\n    orchestrator_warnings: warnings\n  }\n}];"
+                                     },
+                      "id":  "07or0001-0000-4000-8000-000000000008",
+                      "name":  "Collect Upstream Agent Outputs",
+                      "type":  "n8n-nodes-base.code",
+                      "typeVersion":  2,
+                      "position":  [
+                                       2340,
+                                       420
+                                   ]
+                  },
+                  {
+                      "parameters":  {
+                                         "jsCode":  "const data = $input.first().json;\nconst requestBody = {\n  course_id: data.course_id,\n  course_name: data.course_name,\n  student_id: data.student_id,\n  available_agent_outputs: data.available_agent_outputs,\n  fusion_options: data.orchestrator_config.fusion_options || {\n    max_focus_candidates: 10,\n    allow_low_evidence_candidates: true\n  }\n};\n\nreturn [{\n  json: {\n    ...data,\n    fusion_url: `${data.orchestrator_config.agent_base_url}/evidence-fusion-agent`,\n    request_body: requestBody\n  }\n}];"
+                                     },
+                      "id":  "07or0001-0000-4000-8000-000000000009",
+                      "name":  "Build Evidence Fusion Request",
+                      "type":  "n8n-nodes-base.code",
+                      "typeVersion":  2,
+                      "position":  [
+                                       2640,
+                                       420
+                                   ]
+                  },
+                  {
+                      "parameters":  {
+                                         "method":  "POST",
+                                         "url":  "={{ $json.fusion_url }}",
+                                         "sendHeaders":  true,
+                                         "headerParameters":  {
+                                                                  "parameters":  [
+                                                                                     {
+                                                                                         "name":  "Content-Type",
+                                                                                         "value":  "application/json"
+                                                                                     }
+                                                                                 ]
+                                                              },
+                                         "sendBody":  true,
+                                         "contentType":  "raw",
+                                         "rawContentType":  "application/json",
+                                         "body":  "={{ JSON.stringify($json.request_body) }}",
+                                         "options":  {
+                                                         "timeout":  900000
+                                                     }
+                                     },
+                      "id":  "07or0001-0000-4000-8000-000000000010",
+                      "name":  "HTTP - Call Evidence Fusion Agent",
+                      "type":  "n8n-nodes-base.httpRequest",
+                      "typeVersion":  4.2,
+                      "position":  [
+                                       2940,
+                                       420
+                                   ],
+                      "continueOnFail":  true
+                  },
+                  {
+                      "parameters":  {
+                                         "jsCode":  "const fusionOutput = $input.first().json;\nconst context = $(\"Collect Upstream Agent Outputs\").first().json;\nconst studentProfileEntry = (context.available_agent_outputs || []).find(item =\u003e item.agent_name === \"student_profile_agent\");\nconst fusionFailed = Boolean(fusionOutput.error || fusionOutput.statusCode \u003e= 400 || fusionOutput.parser_error);\n\nif (fusionFailed) {\n  return [{\n    json: {\n      skip_strategy: true,\n      workflow_name: \"courselens_orchestrator\",\n      course_id: context.course_id,\n      course_name: context.course_name,\n      student_id: context.student_id,\n      routing_summary: context.routing_summary,\n      evidence_coverage: context.evidence_coverage,\n      final_report: null,\n      status: \"evidence_fusion_failed\",\n      orchestrator_warnings: [\n        ...(context.orchestrator_warnings || []),\n        \"Evidence Fusion Agent failed, so the orchestrator did not call the final Review Strategy / Critic Agent.\"\n      ],\n      error_detail: fusionOutput\n    }\n  }];\n}\n\nconst requestBody = {\n  course_id: context.course_id,\n  course_name: context.course_name,\n  student_id: context.student_id,\n  user_review_request: context.user_review_request,\n  evidence_fusion_map: fusionOutput,\n  student_profile_map: studentProfileEntry?.status === \"available\" ? (studentProfileEntry.output || {}) : {},\n  strategy_options: context.strategy_options\n};\n\nreturn [{\n  json: {\n    workflow_name: \"courselens_orchestrator\",\n    course_id: context.course_id,\n    course_name: context.course_name,\n    student_id: context.student_id,\n    strategy_url: `${context.orchestrator_config.agent_base_url}/review-strategy-critic-agent`,\n    request_body: requestBody,\n    routing_summary: context.routing_summary,\n    evidence_coverage: context.evidence_coverage,\n    orchestrator_warnings: context.orchestrator_warnings,\n    evidence_fusion_map: fusionOutput,\n    available_agent_outputs: context.available_agent_outputs,\n    orchestrator_config: context.orchestrator_config\n  }\n}];"
+                                     },
+                      "id":  "07or0001-0000-4000-8000-000000000011",
+                      "name":  "Build Strategy Request",
+                      "type":  "n8n-nodes-base.code",
+                      "typeVersion":  2,
+                      "position":  [
+                                       3240,
+                                       420
+                                   ]
+                  },
+                  {
+                      "parameters":  {
+                                         "conditions":  {
+                                                            "options":  {
+                                                                            "caseSensitive":  true,
+                                                                            "leftValue":  "",
+                                                                            "typeValidation":  "strict"
+                                                                        },
+                                                            "conditions":  [
+                                                                               {
+                                                                                   "id":  "07or-condition-call-strategy",
+                                                                                   "leftValue":  "={{ $json.skip_strategy }}",
+                                                                                   "rightValue":  true,
+                                                                                   "operator":  {
+                                                                                                    "type":  "boolean",
+                                                                                                    "operation":  "notEquals"
+                                                                                                }
+                                                                               }
+                                                                           ],
+                                                            "combinator":  "and"
+                                                        },
+                                         "options":  {
+
+                                                     }
+                                     },
+                      "id":  "07or0001-0000-4000-8000-000000000012",
+                      "name":  "IF - Should Call Strategy Agent",
+                      "type":  "n8n-nodes-base.if",
+                      "typeVersion":  2.2,
+                      "position":  [
+                                       3540,
+                                       420
+                                   ]
+                  },
+                  {
+                      "parameters":  {
+                                         "method":  "POST",
+                                         "url":  "={{ $json.strategy_url }}",
+                                         "sendHeaders":  true,
+                                         "headerParameters":  {
+                                                                  "parameters":  [
+                                                                                     {
+                                                                                         "name":  "Content-Type",
+                                                                                         "value":  "application/json"
+                                                                                     }
+                                                                                 ]
+                                                              },
+                                         "sendBody":  true,
+                                         "contentType":  "raw",
+                                         "rawContentType":  "application/json",
+                                         "body":  "={{ JSON.stringify($json.request_body) }}",
+                                         "options":  {
+                                                         "timeout":  900000
+                                                     }
+                                     },
+                      "id":  "07or0001-0000-4000-8000-000000000013",
+                      "name":  "HTTP - Call Review Strategy Critic Agent",
+                      "type":  "n8n-nodes-base.httpRequest",
+                      "typeVersion":  4.2,
+                      "position":  [
+                                       3840,
+                                       320
+                                   ],
+                      "continueOnFail":  true
+                  },
+                  {
+                      "parameters":  {
+                                         "jsCode":  "const input = $input.first().json;\n\nif (input.skip_strategy || input.status === \"evidence_fusion_failed\") {\n  return [{ json: input }];\n}\n\nconst strategyContext = $(\"Build Strategy Request\").first().json;\nconst strategyOutput = input;\nconst strategyFailed = Boolean(strategyOutput.error || strategyOutput.statusCode \u003e= 400 || strategyOutput.parser_error);\nconst warnings = [...(strategyContext.orchestrator_warnings || [])];\nif (strategyFailed) warnings.push(\"Review Strategy / Critic Agent failed, so no final student-facing report was produced.\");\n\nconst response = {\n  workflow_name: \"courselens_orchestrator\",\n  course_id: strategyContext.course_id,\n  course_name: strategyContext.course_name,\n  student_id: strategyContext.student_id,\n  status: strategyFailed ? \"review_strategy_failed\" : \"completed\",\n  routing_summary: {\n    ...strategyContext.routing_summary,\n    called_agents: [\n      ...(strategyContext.routing_summary.called_agents || []),\n      \"evidence_fusion_agent\",\n      ...(strategyFailed ? [] : [\"review_strategy_critic_agent\"])\n    ]\n  },\n  evidence_coverage: strategyContext.evidence_coverage,\n  final_report: strategyFailed ? null : strategyOutput,\n  orchestrator_warnings: warnings\n};\n\nif (strategyContext.orchestrator_config.include_debug_outputs) {\n  response.intermediate_outputs = {\n    available_agent_outputs: strategyContext.available_agent_outputs,\n    evidence_fusion_map: strategyContext.evidence_fusion_map\n  };\n}\n\nif (strategyFailed) response.error_detail = strategyOutput;\n\nreturn [{ json: response }];"
+                                     },
+                      "id":  "07or0001-0000-4000-8000-000000000014",
+                      "name":  "Build Final Orchestrator Response",
+                      "type":  "n8n-nodes-base.code",
+                      "typeVersion":  2,
+                      "position":  [
+                                       4160,
+                                       420
+                                   ]
+                  },
+                  {
+                      "parameters":  {
+                                         "jsCode":  "const context = $(\"Build Routing Plan\").first().json;\nreturn [{\n  json: {\n    workflow_name: \"courselens_orchestrator\",\n    course_id: context.course_id,\n    course_name: context.course_name,\n    student_id: context.student_id,\n    status: \"insufficient_input\",\n    routing_summary: {\n      called_agents: [],\n      skipped_agents: context.routing_plan.skipped_agents\n    },\n    evidence_coverage: context.evidence_coverage,\n    final_report: null,\n    missing_input_requests: [\n      \"Please provide extracted course material text, lecture notes/transcripts, past exams/questions, or student self-assessment/mistake records.\",\n      \"The orchestrator does not parse raw PDF/PPT/audio files in this MVP workflow. Use an ingestion workflow first, then pass extracted text fields here.\"\n    ],\n    orchestrator_warnings: [\n      ...(context.orchestrator_warnings || []),\n      \"No upstream agent was called because no routable input was found.\"\n    ]\n  }\n}];"
+                                     },
+                      "id":  "07or0001-0000-4000-8000-000000000015",
+                      "name":  "Build Insufficient Input Response",
+                      "type":  "n8n-nodes-base.code",
+                      "typeVersion":  2,
+                      "position":  [
+                                       2040,
+                                       660
+                                   ]
+                  },
+                  {
+                      "parameters":  {
+                                         "respondWith":  "json",
+                                         "responseBody":  "={{ $json }}",
+                                         "options":  {
+
+                                                     }
+                                     },
+                      "id":  "07or0001-0000-4000-8000-000000000016",
+                      "name":  "Respond - CourseLens Orchestrator Result",
+                      "type":  "n8n-nodes-base.respondToWebhook",
+                      "typeVersion":  1.1,
+                      "position":  [
+                                       4480,
+                                       520
+                                   ]
+                  }
+              ],
+    "connections":  {
+                        "Webhook - Receive CourseLens Request":  {
+                                                                     "main":  [
+                                                                                  [
+                                                                                      {
+                                                                                          "node":  "Normalize Orchestrator Input",
+                                                                                          "type":  "main",
+                                                                                          "index":  0
+                                                                                      }
+                                                                                  ]
+                                                                              ]
+                                                                 },
+                        "Normalize Orchestrator Input":  {
+                                                             "main":  [
+                                                                          [
+                                                                              {
+                                                                                  "node":  "Build Routing Plan",
+                                                                                  "type":  "main",
+                                                                                  "index":  0
+                                                                              }
+                                                                          ]
+                                                                      ]
+                                                         },
+                        "Build Routing Plan":  {
+                                                   "main":  [
+                                                                [
+                                                                    {
+                                                                        "node":  "Build Upstream Agent Requests",
+                                                                        "type":  "main",
+                                                                        "index":  0
+                                                                    }
+                                                                ]
+                                                            ]
+                                               },
+                        "Build Upstream Agent Requests":  {
+                                                              "main":  [
+                                                                           [
+                                                                               {
+                                                                                   "node":  "IF - Has Upstream Agent Calls",
+                                                                                   "type":  "main",
+                                                                                   "index":  0
+                                                                               }
+                                                                           ]
+                                                                       ]
+                                                          },
+                        "IF - Has Upstream Agent Calls":  {
+                                                              "main":  [
+                                                                           [
+                                                                               {
+                                                                                   "node":  "HTTP - Call Routed Upstream Agent",
+                                                                                   "type":  "main",
+                                                                                   "index":  0
+                                                                               }
+                                                                           ],
+                                                                           [
+                                                                               {
+                                                                                   "node":  "Build Insufficient Input Response",
+                                                                                   "type":  "main",
+                                                                                   "index":  0
+                                                                               }
+                                                                           ]
+                                                                       ]
+                                                          },
+                        "HTTP - Call Routed Upstream Agent":  {
+                                                                  "main":  [
+                                                                               [
+                                                                                   {
+                                                                                       "node":  "Collect Upstream Agent Outputs",
+                                                                                       "type":  "main",
+                                                                                       "index":  0
+                                                                                   }
+                                                                               ]
+                                                                           ]
+                                                              },
+                        "Collect Upstream Agent Outputs":  {
+                                                               "main":  [
+                                                                            [
+                                                                                {
+                                                                                    "node":  "Build Evidence Fusion Request",
+                                                                                    "type":  "main",
+                                                                                    "index":  0
+                                                                                }
+                                                                            ]
+                                                                        ]
+                                                           },
+                        "Build Evidence Fusion Request":  {
+                                                              "main":  [
+                                                                           [
+                                                                               {
+                                                                                   "node":  "HTTP - Call Evidence Fusion Agent",
+                                                                                   "type":  "main",
+                                                                                   "index":  0
+                                                                               }
+                                                                           ]
+                                                                       ]
+                                                          },
+                        "HTTP - Call Evidence Fusion Agent":  {
+                                                                  "main":  [
+                                                                               [
+                                                                                   {
+                                                                                       "node":  "Build Strategy Request",
+                                                                                       "type":  "main",
+                                                                                       "index":  0
+                                                                                   }
+                                                                               ]
+                                                                           ]
+                                                              },
+                        "Build Strategy Request":  {
+                                                       "main":  [
+                                                                    [
+                                                                        {
+                                                                            "node":  "IF - Should Call Strategy Agent",
+                                                                            "type":  "main",
+                                                                            "index":  0
+                                                                        }
+                                                                    ]
+                                                                ]
+                                                   },
+                        "IF - Should Call Strategy Agent":  {
+                                                                "main":  [
+                                                                             [
+                                                                                 {
+                                                                                     "node":  "HTTP - Call Review Strategy Critic Agent",
+                                                                                     "type":  "main",
+                                                                                     "index":  0
+                                                                                 }
+                                                                             ],
+                                                                             [
+                                                                                 {
+                                                                                     "node":  "Build Final Orchestrator Response",
+                                                                                     "type":  "main",
+                                                                                     "index":  0
+                                                                                 }
+                                                                             ]
+                                                                         ]
+                                                            },
+                        "HTTP - Call Review Strategy Critic Agent":  {
+                                                                         "main":  [
+                                                                                      [
+                                                                                          {
+                                                                                              "node":  "Build Final Orchestrator Response",
+                                                                                              "type":  "main",
+                                                                                              "index":  0
+                                                                                          }
+                                                                                      ]
+                                                                                  ]
+                                                                     },
+                        "Build Final Orchestrator Response":  {
+                                                                  "main":  [
+                                                                               [
+                                                                                   {
+                                                                                       "node":  "Respond - CourseLens Orchestrator Result",
+                                                                                       "type":  "main",
+                                                                                       "index":  0
+                                                                                   }
+                                                                               ]
+                                                                           ]
+                                                              },
+                        "Build Insufficient Input Response":  {
+                                                                  "main":  [
+                                                                               [
+                                                                                   {
+                                                                                       "node":  "Respond - CourseLens Orchestrator Result",
+                                                                                       "type":  "main",
+                                                                                       "index":  0
+                                                                                   }
+                                                                               ]
+                                                                           ]
+                                                              }
+                    },
+    "active":  false,
+    "settings":  {
+                     "executionOrder":  "v1",
+                     "binaryMode":  "separate"
+                 },
+    "versionId":  "07or0001-0000-4000-8000-000000000017",
+    "meta":  {
+                 "templateCredsSetupCompleted":  true
+             },
+    "pinData":  {
+
+                },
+    "tags":  [
+
+             ]
+}

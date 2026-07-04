@@ -1,0 +1,206 @@
+{
+  "name": "CourseLens - 01 Course Material Agent v6 HTTP OpenAI",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "Course Material Agent v2\n\nPurpose:\nBuild a structured Course Knowledge Map from already-extracted course text.\n\nCurrent scope:\n- Input is JSON with course_name, course_id, and materials[].text.\n- The AI Agent extracts chapters, topics, concepts, dependencies, and source evidence.\n- The parser node converts the agent output into strict JSON.\n\nImportant boundary:\nThis workflow does not parse PDF/PPT files directly yet. File parsing should be handled by a later ingestion workflow.",
+        "height": 360,
+        "width": 460,
+        "color": 4
+      },
+      "id": "6106462d-855f-4af6-b31a-6345279cfced",
+      "name": "Workflow Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2128,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "course-material-agent",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "69606959-762d-4243-82dc-2131ecd3c133",
+      "name": "Webhook - Receive Materials",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        2640,
+        832
+      ],
+      "webhookId": "course-material-agent"
+    },
+    {
+      "parameters": {
+        "jsCode": "const incoming = $input.first()?.json ?? {};\nconst body = incoming.body ?? incoming;\n\nconst courseName = body.course_name || body.courseName || \"Unknown Course\";\nconst courseId = body.course_id || body.courseId || \"course_unknown\";\nconst materials = Array.isArray(body.materials) ? body.materials : [];\n\nconst normalizedMaterials = materials.map((m, index) => ({\n  source_id: m.source_id || m.sourceId || `src_${String(index + 1).padStart(3, \"0\")}`,\n  file_name: m.file_name || m.fileName || m.name || `material_${index + 1}`,\n  source_type: m.source_type || m.sourceType || \"unknown\",\n  text: m.text || m.content || \"\",\n  page_start: m.page_start || m.pageStart || null,\n  page_end: m.page_end || m.pageEnd || null,\n  metadata: m.metadata || {}\n}));\n\nreturn [{\n  json: {\n    workflow_name: \"course_material_agent\",\n    course_id: courseId,\n    course_name: courseName,\n    material_summary: {\n      total_files: normalizedMaterials.length,\n      file_types: [...new Set(normalizedMaterials.map(m => m.source_type))],\n      file_names: normalizedMaterials.map(m => m.file_name)\n    },\n    materials: normalizedMaterials,\n    constraints: {\n      no_exam_prediction: true,\n      no_final_priority_decision: true,\n      evidence_required_for_each_concept: true\n    }\n  }\n}];"
+      },
+      "id": "138889d5-bc0e-4763-873b-38697d69389c",
+      "name": "Normalize Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2896,
+        832
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\n\nconst materialPreview = (data.materials || []).map(m => ({\n  source_id: m.source_id,\n  file_name: m.file_name,\n  source_type: m.source_type,\n  page_start: m.page_start,\n  page_end: m.page_end,\n  metadata: m.metadata,\n  text: (m.text || \"\").slice(0, 6000)\n}));\n\nconst systemPrompt = `You are Course Material Agent in CourseLens, a multi-agent course review system.\n\nYour only job is to build a structured Course Knowledge Map from course materials.\n\nTool policy:\n- A placeholder calculator tool may be connected for n8n agent-node compatibility.\n- Do not call any tool unless absolutely necessary.\n- For this workflow, solve the task directly from the provided materials.\n\nRules:\n1. Extract course content only: chapters, topics, concepts, definitions, formulas, algorithms, methods, examples, and prerequisite relations.\n2. Every concept must include source evidence from the provided materials.\n3. Do not predict exam questions.\n4. Do not say any concept is \"must-test\", \"guaranteed\", or \"certainly examined\".\n5. Do not generate a review plan.\n6. Do not analyze student weaknesses.\n7. If evidence is weak or missing, put the issue in uncertainties.\n8. Return valid JSON only. Do not wrap it in Markdown. Do not add explanations outside JSON.`;\n\nconst userPrompt = `Build a Course Knowledge Map for the course below.\n\nCourse ID: ${data.course_id}\nCourse name: ${data.course_name}\n\nMaterial summary:\n${JSON.stringify(data.material_summary, null, 2)}\n\nMaterials:\n${JSON.stringify(materialPreview, null, 2)}\n\nReturn this exact JSON shape:\n{\n  \"workflow_name\": \"course_material_agent\",\n  \"course_id\": \"${data.course_id}\",\n  \"course_name\": \"${data.course_name}\",\n  \"material_summary\": {\n    \"total_files\": number,\n    \"file_types\": [\"string\"],\n    \"file_names\": [\"string\"],\n    \"covered_chapters\": [\"string\"]\n  },\n  \"knowledge_map\": [\n    {\n      \"chapter\": \"string\",\n      \"topics\": [\n        {\n          \"topic_name\": \"string\",\n          \"concepts\": [\n            {\n              \"concept_id\": \"stable short id such as c_001\",\n              \"concept_name\": \"string\",\n              \"concept_type\": \"definition | formula | algorithm | method | comparison | example | theorem | process | application\",\n              \"summary\": \"string\",\n              \"source_evidence\": [\n                {\n                  \"source_id\": \"string\",\n                  \"file_name\": \"string\",\n                  \"page\": number_or_null,\n                  \"evidence_text\": \"short direct evidence from the material\"\n                }\n              ],\n              \"related_concepts\": [\"string\"],\n              \"material_coverage\": \"low | medium | high\"\n            }\n          ]\n        }\n      ]\n    }\n  ],\n  \"dependency_relations\": [\n    {\n      \"from\": \"concept name or concept_id\",\n      \"to\": \"concept name or concept_id\",\n      \"relation\": \"prerequisite | extension | contrast | application\"\n    }\n  ],\n  \"uncertainties\": [\"string\"]\n}\n\nQuality requirements:\n- Prefer concise but meaningful summaries.\n- Use source_id and file_name exactly as given.\n- Use page_start as page when no more specific page is available.\n- If the material is too short to infer chapters, create a reasonable chapter label and mark it in uncertainties.\n- Keep evidence_text short.`;\n\nreturn [{\n  json: {\n    ...data,\n    llm_payload: {\n      system_prompt: systemPrompt,\n      user_prompt: userPrompt\n    }\n  }\n}];"
+      },
+      "id": "7d844beb-7e61-4fa4-9f0d-3dbb66f3e890",
+      "name": "Build LLM Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3168,
+        832
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.jinmaoapi.top/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{ \"Bearer \" + $env.OPENAI_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ model: \"gpt-5.5\", temperature: 0.2, messages: [ { role: \"system\", content: $json.llm_payload.system_prompt }, { role: \"user\", content: $json.llm_payload.user_prompt } ] }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3440,
+        832
+      ],
+      "id": "1457311a-23a9-49fd-9a3e-ba13aca1f9c5",
+      "name": "HTTP OpenAI - Extract Knowledge Map"
+    },
+    {
+      "parameters": {
+        "jsCode": "const llmResult = $input.first().json;\n\nfunction pickRawOutput(value) {\n  if (typeof value === \"string\") return value;\n  if (value?.output !== undefined) return value.output;\n  if (value?.response?.text !== undefined) return value.response.text;\n  if (value?.generations?.[0]?.[0]?.text !== undefined) return value.generations[0][0].text;\n  if (value?.choices?.[0]?.message?.content !== undefined) return value.choices[0].message.content;\n  if (value?.text !== undefined) return value.text;\n  if (value?.response !== undefined) return value.response;\n  if (value?.message?.content !== undefined) return value.message.content;\n  return value;\n}\n\nfunction stripCodeFence(text) {\n  return text\n    .replace(/^```(?:json)?\\s*/i, \"\")\n    .replace(/\\s*```$/i, \"\")\n    .trim();\n}\n\nfunction parseJsonLoose(raw) {\n  if (raw && typeof raw === \"object\") {\n    if (raw.workflow_name || raw.knowledge_map) return raw;\n    raw = JSON.stringify(raw);\n  }\n\n  let text = String(raw ?? \"\").trim();\n  text = stripCodeFence(text);\n\n  try {\n    return JSON.parse(text);\n  } catch (firstError) {\n    const start = text.indexOf(\"{\");\n    const end = text.lastIndexOf(\"}\");\n    if (start >= 0 && end > start) {\n      const candidate = text.slice(start, end + 1);\n      return JSON.parse(candidate);\n    }\n    throw firstError;\n  }\n}\n\nlet parsed;\ntry {\n  parsed = parseJsonLoose(pickRawOutput(llmResult));\n} catch (error) {\n  return [{\n    json: {\n      workflow_name: \"course_material_agent\",\n      parser_error: true,\n      error_message: error.message,\n      raw_llm_output: llmResult\n    }\n  }];\n}\n\nparsed.workflow_name = parsed.workflow_name || \"course_material_agent\";\nparsed.material_summary = parsed.material_summary || {};\nparsed.knowledge_map = Array.isArray(parsed.knowledge_map) ? parsed.knowledge_map : [];\nparsed.dependency_relations = Array.isArray(parsed.dependency_relations) ? parsed.dependency_relations : [];\nparsed.uncertainties = Array.isArray(parsed.uncertainties) ? parsed.uncertainties : [];\nparsed._agent_meta = {\n  parsed_at: new Date().toISOString(),\n  node: \"Parse OpenAI JSON\"\n};\n\nreturn [{ json: parsed }];"
+      },
+      "id": "f1cc9d82-ce9b-4981-b068-5ce0ed7d35cf",
+      "name": "Parse OpenAI JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3792,
+        832
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "46f3081d-4f24-4310-9133-97e6c0bcb01f",
+      "name": "Respond - Knowledge Map",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        4048,
+        832
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook - Receive Materials": {
+      "main": [
+        [
+          {
+            "node": "Normalize Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Input": {
+      "main": [
+        [
+          {
+            "node": "Build LLM Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build LLM Prompt": {
+      "main": [
+        [
+          {
+            "node": "HTTP OpenAI - Extract Knowledge Map",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP OpenAI - Extract Knowledge Map": {
+      "main": [
+        [
+          {
+            "node": "Parse OpenAI JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse OpenAI JSON": {
+      "main": [
+        [
+          {
+            "node": "Respond - Knowledge Map",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "b83ff055-2ea3-437a-9fe1-7f53ceebb295",
+  "meta": {
+    "instanceId": "3f9be7f6047d75e769a4766192c647b7334f96d0db74013fe718e9c11646cd32"
+  },
+  "id": "keHyI9eIBiurZgYL",
+  "tags": [
+    {
+      "updatedAt": "2026-07-04T08:50:59.624Z",
+      "createdAt": "2026-07-04T08:50:59.624Z",
+      "id": "CgXVQcgWlR40LDZQ",
+      "name": "CourseLens"
+    },
+    {
+      "updatedAt": "2026-07-04T08:50:59.636Z",
+      "createdAt": "2026-07-04T08:50:59.636Z",
+      "id": "SOJb3XQtvxVmaSf8",
+      "name": "AgentWorkflow"
+    }
+  ]
+}

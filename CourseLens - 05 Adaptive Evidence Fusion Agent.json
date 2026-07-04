@@ -1,0 +1,744 @@
+﻿{
+  "name": "CourseLens - 05 Adaptive Evidence Fusion Agent v1 Branching HTTP OpenAI",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "Adaptive Evidence Fusion Agent v1 - Branching\n\nPurpose:\nFuse whichever upstream CourseLens agent outputs are available into evidence-grounded review focus candidates.\n\nBranching design:\n- One flexible evidence pool fans out to three expert branches:\n  1. Concept Alignment Expert\n  2. Cross-Source Relevance Mapping Expert\n  3. Missing Evidence Analyst\n- Merge nodes recombine expert findings into a Fusion Board.\n- Priority Synthesizer, Local Evidence Critic, and Repair/Finalize then produce the final map.\n\nBoundary:\nThis workflow does not call upstream agents, generate a detailed schedule, or assemble the final report. Those belong to the Orchestrator and Review Strategy/Critic agent.",
+        "height": 520,
+        "width": 560,
+        "color": 4
+      },
+      "id": "05ef0001-0000-4000-8000-000000000001",
+      "name": "Workflow Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        160,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "evidence-fusion-agent",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "05ef0001-0000-4000-8000-000000000002",
+      "name": "Webhook - Receive Available Agent Outputs",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        160,
+        760
+      ],
+      "webhookId": "evidence-fusion-agent"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst incoming = $input.first()?.json ?? {};\nconst body = incoming.body ?? incoming;\n\nconst courseName = body.course_name || body.courseName || \"Unknown Course\";\nconst courseId = body.course_id || body.courseId || \"course_unknown\";\nconst studentId = body.student_id || body.studentId || null;\nconst fusionOptions = body.fusion_options || body.fusionOptions || {};\n\nfunction firstPresent(...values) {\n  return values.find(value => value !== undefined && value !== null);\n}\n\nfunction asArray(value) {\n  if (Array.isArray(value)) return value;\n  if (value === undefined || value === null) return [];\n  return [value];\n}\n\nconst directOutputs = [\n  [\"course_material_agent\", firstPresent(body.course_knowledge_map, body.courseKnowledgeMap, body.material_agent_output, body.materialAgentOutput, body.course_material_agent_output)],\n  [\"lecture_signal_agent\", firstPresent(body.lecture_signal_map, body.lectureSignalMap, body.lecture_agent_output, body.lectureAgentOutput, body.lecture_signal_agent_output)],\n  [\"exam_pattern_agent\", firstPresent(body.exam_pattern_map, body.examPatternMap, body.exam_agent_output, body.examAgentOutput, body.exam_pattern_agent_output)],\n  [\"student_profile_agent\", firstPresent(body.student_profile_map, body.studentProfileMap, body.student_agent_output, body.studentAgentOutput, body.student_profile_agent_output)]\n];\n\nconst availableAgentOutputs = [];\nconst seen = new Set();\n\nfor (const item of asArray(body.available_agent_outputs || body.availableAgentOutputs || body.agent_outputs || body.agentOutputs)) {\n  const agentName = item.agent_name || item.agentName || item.workflow_name || item.workflowName || item.name || \"unknown_agent\";\n  const status = item.status || (item.output ? \"available\" : \"missing\");\n  availableAgentOutputs.push({\n    agent_name: agentName,\n    status,\n    reason: item.reason || null,\n    output: item.output || item.result || item.data || null\n  });\n  seen.add(agentName);\n}\n\nfor (const [agentName, output] of directOutputs) {\n  if (output !== undefined && output !== null && !seen.has(agentName)) {\n    availableAgentOutputs.push({\n      agent_name: agentName,\n      status: \"available\",\n      reason: null,\n      output\n    });\n    seen.add(agentName);\n  }\n}\n\nfor (const agentName of [\"course_material_agent\", \"lecture_signal_agent\", \"exam_pattern_agent\", \"student_profile_agent\"]) {\n  if (!seen.has(agentName)) {\n    availableAgentOutputs.push({\n      agent_name: agentName,\n      status: \"not_provided\",\n      reason: \"No corresponding upstream agent output was provided.\",\n      output: null\n    });\n  }\n}\n\nfunction normalizeAgentName(name) {\n  const raw = String(name || \"\").toLowerCase();\n  if (raw.includes(\"course\") || raw.includes(\"material\") || raw.includes(\"knowledge\")) return \"course_material_agent\";\n  if (raw.includes(\"lecture\") || raw.includes(\"signal\")) return \"lecture_signal_agent\";\n  if (raw.includes(\"exam\") || raw.includes(\"pattern\") || raw.includes(\"question\")) return \"exam_pattern_agent\";\n  if (raw.includes(\"student\") || raw.includes(\"profile\")) return \"student_profile_agent\";\n  return raw || \"unknown_agent\";\n}\n\nfunction shortText(value, max = 300) {\n  return String(value ?? \"\").replace(/\\s+/g, \" \").trim().slice(0, max);\n}\n\nfunction addEvidence(pool, item) {\n  if (!item.topic_text && !item.evidence_text && !item.summary) return;\n  const sourceAgent = normalizeAgentName(item.source_agent);\n  const index = pool.filter(e => e.source_agent === sourceAgent).length + 1;\n  pool.push({\n    evidence_id: item.evidence_id || (sourceAgent.replace(/_agent$/, \"\").replace(/_/g, \"\") + \"_\" + String(index).padStart(3, \"0\")),\n    source_agent: sourceAgent,\n    evidence_type: item.evidence_type || \"other\",\n    topic_text: shortText(item.topic_text || item.topic_or_concept || item.concept_name || item.knowledge_point || item.summary, 120),\n    strength: item.strength || item.signal_strength || item.frequency_level || item.severity || item.material_coverage || \"unknown\",\n    confidence: item.confidence ?? null,\n    source_refs: item.source_refs || [],\n    evidence_text: shortText(item.evidence_text || item.summary || item.reasoning || item.description || item.notes, 500),\n    raw: item.raw || null\n  });\n}\n\nfunction sourceRefsFromEvidence(list) {\n  return asArray(list).map(e => ({\n    source_id: e.source_id || null,\n    file_name: e.file_name || null,\n    location: e.location || e.page || e.exam_year || e.lecture_title || null,\n    evidence_text: shortText(e.evidence_text, 220)\n  }));\n}\n\nfunction collectCourseMaterial(output, pool) {\n  for (const chapter of asArray(output.knowledge_map)) {\n    for (const topic of asArray(chapter.topics)) {\n      for (const concept of asArray(topic.concepts)) {\n        addEvidence(pool, {\n          source_agent: \"course_material_agent\",\n          evidence_type: \"course_concept\",\n          topic_text: concept.concept_name || topic.topic_name || chapter.chapter,\n          strength: concept.material_coverage || \"unknown\",\n          confidence: concept.confidence ?? null,\n          source_refs: sourceRefsFromEvidence(concept.source_evidence),\n          evidence_text: concept.summary || concept.concept_type,\n          raw: {\n            concept_id: concept.concept_id || null,\n            chapter: chapter.chapter || null,\n            topic: topic.topic_name || null,\n            related_concepts: concept.related_concepts || []\n          }\n        });\n      }\n    }\n  }\n  for (const rel of asArray(output.dependency_relations)) {\n    addEvidence(pool, {\n      source_agent: \"course_material_agent\",\n      evidence_type: \"dependency_relation\",\n      topic_text: String(rel.from || \"\") + \" -> \" + String(rel.to || \"\"),\n      strength: \"medium\",\n      evidence_text: rel.relation || \"dependency relation\",\n      raw: rel\n    });\n  }\n}\n\nfunction collectLectureSignals(output, pool) {\n  for (const signal of asArray(output.lecture_signals)) {\n    addEvidence(pool, {\n      source_agent: \"lecture_signal_agent\",\n      evidence_type: signal.signal_type || \"lecture_signal\",\n      topic_text: signal.topic_or_concept,\n      strength: signal.signal_strength || \"unknown\",\n      confidence: signal.confidence ?? null,\n      source_refs: sourceRefsFromEvidence(signal.source_evidence),\n      evidence_text: signal.summary || signal.reasoning,\n      raw: { signal_id: signal.signal_id || null }\n    });\n  }\n}\n\nfunction collectExamPatterns(output, pool) {\n  for (const pattern of asArray(output.pattern_summary)) {\n    addEvidence(pool, {\n      source_agent: \"exam_pattern_agent\",\n      evidence_type: \"exam_pattern\",\n      topic_text: pattern.knowledge_point,\n      strength: pattern.frequency_level || \"unknown\",\n      confidence: pattern.confidence ?? null,\n      source_refs: sourceRefsFromEvidence(pattern.source_evidence),\n      evidence_text: pattern.summary,\n      raw: {\n        pattern_id: pattern.pattern_id || null,\n        question_types: pattern.question_types || [],\n        ability_requirements: pattern.ability_requirements || [],\n        supporting_questions: pattern.supporting_questions || []\n      }\n    });\n  }\n  for (const question of asArray(output.question_analysis)) {\n    addEvidence(pool, {\n      source_agent: \"exam_pattern_agent\",\n      evidence_type: \"question_analysis\",\n      topic_text: asArray(question.knowledge_points).join(\", \"),\n      strength: question.difficulty_estimate || \"unknown\",\n      source_refs: [{\n        source_id: question.source_id || null,\n        file_name: question.file_name || null,\n        location: question.exam_year || null,\n        evidence_text: shortText(question.evidence_text, 220)\n      }],\n      evidence_text: question.reasoning || question.evidence_text,\n      raw: {\n        question_id: question.question_id || null,\n        detected_question_type: question.detected_question_type || null,\n        ability_requirements: question.ability_requirements || []\n      }\n    });\n  }\n}\n\nfunction collectStudentProfile(output, pool) {\n  for (const weakness of asArray(output.weaknesses)) {\n    addEvidence(pool, {\n      source_agent: \"student_profile_agent\",\n      evidence_type: \"student_weakness\",\n      topic_text: weakness.topic_or_concept,\n      strength: weakness.severity || \"unknown\",\n      confidence: weakness.confidence ?? null,\n      source_refs: sourceRefsFromEvidence(weakness.evidence),\n      evidence_text: weakness.likely_reason || asArray(weakness.evidence).map(e => e.evidence_text).join(\" \"),\n      raw: {\n        weakness_id: weakness.weakness_id || null,\n        weakness_type: weakness.weakness_type || null\n      }\n    });\n  }\n  for (const pattern of asArray(output.mistake_patterns)) {\n    addEvidence(pool, {\n      source_agent: \"student_profile_agent\",\n      evidence_type: \"mistake_pattern\",\n      topic_text: pattern.topic_or_concept,\n      strength: \"medium\",\n      source_refs: sourceRefsFromEvidence(pattern.evidence),\n      evidence_text: pattern.summary,\n      raw: {\n        pattern_id: pattern.pattern_id || null,\n        mistake_type: pattern.mistake_type || null,\n        related_questions: pattern.related_questions || []\n      }\n    });\n  }\n  for (const item of asArray(output.knowledge_self_assessment)) {\n    addEvidence(pool, {\n      source_agent: \"student_profile_agent\",\n      evidence_type: \"student_self_assessment\",\n      topic_text: item.topic_or_concept,\n      strength: item.self_assessed_level || \"unknown\",\n      confidence: item.confidence ?? null,\n      source_refs: sourceRefsFromEvidence(item.evidence),\n      evidence_text: item.notes || asArray(item.evidence).map(e => e.evidence_text).join(\" \"),\n      raw: { self_assessed_level: item.self_assessed_level || null }\n    });\n  }\n  for (const risk of asArray(output.risk_flags)) {\n    addEvidence(pool, {\n      source_agent: \"student_profile_agent\",\n      evidence_type: \"student_risk\",\n      topic_text: risk.risk_type,\n      strength: risk.severity || \"unknown\",\n      source_refs: sourceRefsFromEvidence(risk.evidence),\n      evidence_text: risk.description,\n      raw: risk\n    });\n  }\n}\n\nconst evidencePool = [];\nconst normalizedOutputs = [];\n\nfor (const entry of availableAgentOutputs) {\n  const agentName = normalizeAgentName(entry.agent_name);\n  const output = entry.output || {};\n  const isAvailable = entry.status === \"available\" && output && typeof output === \"object\";\n  normalizedOutputs.push({\n    agent_name: agentName,\n    status: entry.status,\n    reason: entry.reason || null,\n    has_output: isAvailable,\n    workflow_name: output.workflow_name || null\n  });\n\n  if (!isAvailable) continue;\n  if (agentName === \"course_material_agent\") collectCourseMaterial(output, evidencePool);\n  else if (agentName === \"lecture_signal_agent\") collectLectureSignals(output, evidencePool);\n  else if (agentName === \"exam_pattern_agent\") collectExamPatterns(output, evidencePool);\n  else if (agentName === \"student_profile_agent\") collectStudentProfile(output, evidencePool);\n  else {\n    addEvidence(evidencePool, {\n      source_agent: agentName,\n      evidence_type: \"agent_output_summary\",\n      topic_text: output.workflow_name || agentName,\n      strength: \"unknown\",\n      evidence_text: JSON.stringify(output).slice(0, 500)\n    });\n  }\n}\n\nconst availableSources = normalizedOutputs.filter(x => x.has_output).map(x => x.agent_name);\nconst missingSources = normalizedOutputs.filter(x => !x.has_output).map(x => ({\n  agent_name: x.agent_name,\n  status: x.status,\n  reason: x.reason || \"No usable output.\"\n}));\n\nconst evidenceCoverage = {\n  available_sources: [...new Set(availableSources)],\n  missing_sources: missingSources,\n  evidence_count: evidencePool.length,\n  coverage_level: availableSources.length >= 4 ? \"complete\" : availableSources.length >= 2 ? \"partial\" : availableSources.length === 1 ? \"minimal\" : \"none\"\n};\n\nreturn [{\n  json: {\n    workflow_name: \"evidence_fusion_agent\",\n    course_id: courseId,\n    course_name: courseName,\n    student_id: studentId,\n    fusion_options: {\n      max_focus_candidates: fusionOptions.max_focus_candidates || fusionOptions.maxFocusCandidates || 10,\n      allow_low_evidence_candidates: fusionOptions.allow_low_evidence_candidates ?? fusionOptions.allowLowEvidenceCandidates ?? true\n    },\n    normalized_agent_outputs: normalizedOutputs,\n    evidence_coverage: evidenceCoverage,\n    evidence_pool: evidencePool,\n    original_input_summary: {\n      available_agent_output_entries: availableAgentOutputs.length,\n      direct_input_keys: Object.keys(body)\n    },\n    constraints: {\n      no_exam_prediction: true,\n      no_must_test_language: true,\n      do_not_assume_all_sources_available: true,\n      every_priority_requires_evidence_chain: true,\n      missing_sources_must_lower_confidence_or_add_caveats: true\n    }\n  }\n}];\n"
+      },
+      "id": "05ef0001-0000-4000-8000-000000000003",
+      "name": "Normalize Available Outputs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        760
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst evidencePreview = (data.evidence_pool || []).map(e => ({\n  evidence_id: e.evidence_id,\n  source_agent: e.source_agent,\n  evidence_type: e.evidence_type,\n  topic_text: e.topic_text,\n  strength: e.strength,\n  confidence: e.confidence,\n  evidence_text: e.evidence_text\n}));\n\nconst systemPrompt = [\n  \"You are Concept Alignment Expert in CourseLens Adaptive Evidence Fusion Agent.\",\n  \"Your job is to align equivalent or closely related concepts across whatever evidence sources are available.\",\n  \"Do not assume all four upstream agents exist. Do not infer exam predictions.\",\n  \"Return valid JSON only.\"\n].join(\"\\n\");\n\nconst userPrompt = [\n  \"Align concepts across available evidence.\",\n  \"\",\n  \"Evidence coverage:\",\n  JSON.stringify(data.evidence_coverage, null, 2),\n  \"\",\n  \"Evidence pool:\",\n  JSON.stringify(evidencePreview, null, 2),\n  \"\",\n  \"Return JSON shape:\",\n  \"{\",\n  \"  \\\"workflow_name\\\": \\\"concept_alignment_expert\\\",\",\n  \"  \\\"concept_clusters\\\": [\",\n  \"    {\",\n  \"      \\\"cluster_id\\\": \\\"cc_001\\\",\",\n  \"      \\\"canonical_concept\\\": \\\"string\\\",\",\n  \"      \\\"aliases\\\": [\\\"string\\\"],\",\n  \"      \\\"linked_evidence_ids\\\": [\\\"evidence_id\\\"],\",\n  \"      \\\"source_agents\\\": [\\\"string\\\"],\",\n  \"      \\\"alignment_confidence\\\": 0.8,\",\n  \"      \\\"notes\\\": \\\"string\\\"\",\n  \"    }\",\n  \"  ],\",\n  \"  \\\"alignment_uncertainties\\\": [\\\"string\\\"]\",\n  \"}\",\n  \"\",\n  \"Use evidence_id values exactly as provided. If only one source exists, still group concepts but mark low cross-source confidence.\"\n].join(\"\\n\");\n\nreturn [{ json: { ...data, llm_payload: { system_prompt: systemPrompt, user_prompt: userPrompt } } }];"
+      },
+      "id": "05ef0001-0000-4000-8000-000000000004",
+      "name": "Build Concept Alignment Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        760,
+        760
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.jinmaoapi.top/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{ \"Bearer \" + $env.OPENAI_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ model: \"gpt-5.5\", temperature: 0.2, messages: [ { role: \"system\", content: $json.llm_payload.system_prompt }, { role: \"user\", content: $json.llm_payload.user_prompt } ] }) }}",
+        "options": {}
+      },
+      "id": "05ef0001-0000-4000-8000-000000000005",
+      "name": "HTTP OpenAI - Concept Alignment",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1060,
+        760
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const previous = $(\"Build Concept Alignment Prompt\").first().json;\nconst llmResult = $input.first().json;\nfunction pickRawOutput(value) {\n  if (typeof value === \"string\") return value;\n  if (value?.output !== undefined) return value.output;\n  if (value?.response?.text !== undefined) return value.response.text;\n  if (value?.generations?.[0]?.[0]?.text !== undefined) return value.generations[0][0].text;\n  if (value?.choices?.[0]?.message?.content !== undefined) return value.choices[0].message.content;\n  if (value?.text !== undefined) return value.text;\n  if (value?.response !== undefined) return value.response;\n  if (value?.message?.content !== undefined) return value.message.content;\n  return value;\n}\n\nfunction stripCodeFence(text) {\n  const fence = String.fromCharCode(96).repeat(3);\n  return text\n    .replace(new RegExp(\"^\" + fence + \"(?:json)?\\\\s*\", \"i\"), \"\")\n    .replace(new RegExp(\"\\\\s*\" + fence + \"$\", \"i\"), \"\")\n    .trim();\n}\n\nfunction parseJsonLoose(raw) {\n  if (raw && typeof raw === \"object\") raw = JSON.stringify(raw);\n  let text = String(raw ?? \"\").trim();\n  text = stripCodeFence(text);\n  try {\n    return JSON.parse(text);\n  } catch (firstError) {\n    const start = text.indexOf(\"{\");\n    const end = text.lastIndexOf(\"}\");\n    if (start >= 0 && end > start) return JSON.parse(text.slice(start, end + 1));\n    throw firstError;\n  }\n}\n\nlet parsed;\ntry {\n  parsed = parseJsonLoose(pickRawOutput(llmResult));\n} catch (error) {\n  parsed = {\n    workflow_name: \"concept_alignment_expert\",\n    parser_error: true,\n    error_message: error.message,\n    concept_clusters: [],\n    alignment_uncertainties: [\"Could not parse Concept Alignment output.\"]\n  };\n}\n\nreturn [{ json: { ...previous, expert_role: \"concept_alignment_result\", concept_alignment_result: parsed } }];"
+      },
+      "id": "05ef0001-0000-4000-8000-000000000006",
+      "name": "Parse Concept Alignment Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1360,
+        760
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all().map(item => item.json);\nconst base = items.find(item => Array.isArray(item.evidence_pool)) || items[0] || {};\nconst conceptResult = items.find(item => item.concept_alignment_result)?.concept_alignment_result || { concept_clusters: [], alignment_uncertainties: [] };\nconst relevanceResult = items.find(item => item.relevance_mapping_result)?.relevance_mapping_result || { source_links: [], relevance_uncertainties: [] };\nconst missingResult = items.find(item => item.missing_evidence_result)?.missing_evidence_result || { missing_evidence_impacts: [], coverage_notes: [] };\n\nconst evidenceById = Object.fromEntries((base.evidence_pool || []).map(e => [e.evidence_id, e]));\nfunction evidenceFor(ids) { return (ids || []).map(id => evidenceById[id]).filter(Boolean); }\n\nconst fusionBoard = (conceptResult.concept_clusters || []).map(cluster => {\n  const linkedEvidence = evidenceFor(cluster.linked_evidence_ids);\n  const sourceLinks = (relevanceResult.source_links || []).filter(link => {\n    const ids = link.supporting_evidence_ids || [];\n    return ids.some(id => (cluster.linked_evidence_ids || []).includes(id)) || (link.topic_or_concept && String(cluster.canonical_concept || \"\").toLowerCase().includes(String(link.topic_or_concept).toLowerCase()));\n  });\n  return {\n    cluster_id: cluster.cluster_id,\n    canonical_concept: cluster.canonical_concept,\n    aliases: cluster.aliases || [],\n    source_agents: [...new Set(linkedEvidence.map(e => e.source_agent))],\n    linked_evidence: linkedEvidence,\n    source_links: sourceLinks,\n    alignment_confidence: cluster.alignment_confidence ?? null,\n    notes: cluster.notes || null\n  };\n});\n\nconst clusteredIds = new Set((conceptResult.concept_clusters || []).flatMap(cluster => cluster.linked_evidence_ids || []));\nconst unmappedEvidence = (base.evidence_pool || []).filter(e => !clusteredIds.has(e.evidence_id));\n\nconst mappingResult = {\n  workflow_name: \"adaptive_parallel_mapping_board\",\n  concept_clusters: conceptResult.concept_clusters || [],\n  source_links: relevanceResult.source_links || [],\n  missing_evidence_impacts: missingResult.missing_evidence_impacts || [],\n  mapping_uncertainties: [\n    ...(conceptResult.alignment_uncertainties || []),\n    ...(relevanceResult.relevance_uncertainties || []),\n    ...(missingResult.coverage_notes || [])\n  ]\n};\n\nreturn [{\n  json: {\n    ...base,\n    concept_alignment_result: conceptResult,\n    relevance_mapping_result: relevanceResult,\n    missing_evidence_result: missingResult,\n    mapping_result: mappingResult,\n    fusion_board: fusionBoard,\n    unmapped_evidence: unmappedEvidence,\n    parallel_expert_meta: {\n      expert_count: 3,\n      experts: [\"concept_alignment\", \"relevance_mapping\", \"missing_evidence\"],\n      merged_at: new Date().toISOString()\n    }\n  }\n}];"
+      },
+      "id": "05ef0001-0000-4000-8000-000000000007",
+      "name": "Build Fusion Board",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1660,
+        760
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst data = $input.first().json;\n\nconst systemPrompt = [\n  \"You are Priority Synthesizer in CourseLens Adaptive Evidence Fusion Agent.\",\n  \"\",\n  \"Your job is to create evidence-grounded review focus candidates from the fusion board.\",\n  \"\",\n  \"Rules:\",\n  \"1. Generate review priorities, not exam predictions.\",\n  \"2. Every candidate must cite evidence IDs.\",\n  \"3. Missing evidence must reduce confidence or appear as a caveat.\",\n  \"4. Student need evidence can raise priority, but do not ignore missing course or exam support.\",\n  \"5. Historical exam patterns indicate observed historical relevance only, not future certainty.\",\n  \"6. Do not produce a day-by-day review schedule.\",\n  \"7. Return valid JSON only.\"\n].join(\"\\n\");\n\nconst userPrompt = [\n  \"Create review focus candidates from the available evidence.\",\n  \"\",\n  \"Course ID: \" + data.course_id,\n  \"Course name: \" + data.course_name,\n  \"Student ID: \" + data.student_id,\n  \"\",\n  \"Evidence coverage:\",\n  JSON.stringify(data.evidence_coverage, null, 2),\n  \"\",\n  \"Fusion board:\",\n  JSON.stringify(data.fusion_board, null, 2),\n  \"\",\n  \"Unmapped evidence:\",\n  JSON.stringify((data.unmapped_evidence || []).slice(0, 20), null, 2),\n  \"\",\n  \"Missing evidence impacts:\",\n  JSON.stringify(data.mapping_result.missing_evidence_impacts, null, 2),\n  \"\",\n  \"Max focus candidates: \" + data.fusion_options.max_focus_candidates,\n  \"\",\n  \"Return this exact JSON shape:\",\n  \"{\",\n  \"  \\\"workflow_name\\\": \\\"evidence_fusion_agent\\\",\",\n  \"  \\\"course_id\\\": \" + JSON.stringify(data.course_id) + \",\",\n  \"  \\\"course_name\\\": \" + JSON.stringify(data.course_name) + \",\",\n  \"  \\\"student_id\\\": \" + JSON.stringify(data.student_id) + \",\",\n  \"  \\\"evidence_coverage\\\": \" + JSON.stringify(data.evidence_coverage, null, 2) + \",\",\n  \"  \\\"fusion_summary\\\": {\",\n  \"    \\\"total_focus_candidates\\\": 0,\",\n  \"    \\\"high_priority_count\\\": 0,\",\n  \"    \\\"main_drivers\\\": [\\\"student weakness | lecture emphasis | exam pattern | course coverage | missing evidence | other\\\"],\",\n  \"    \\\"global_uncertainty_level\\\": \\\"low | medium | high\\\"\",\n  \"  },\",\n  \"  \\\"review_focus_candidates\\\": [\",\n  \"    {\",\n  \"      \\\"focus_id\\\": \\\"rf_001\\\",\",\n  \"      \\\"topic_or_concept\\\": \\\"string\\\",\",\n  \"      \\\"priority\\\": \\\"low | medium | high\\\",\",\n  \"      \\\"priority_score\\\": 0.75,\",\n  \"      \\\"evidence_confidence\\\": 0.7,\",\n  \"      \\\"why_priority\\\": \\\"string\\\",\",\n  \"      \\\"evidence_chain\\\": [\\\"evidence_id\\\"],\",\n  \"      \\\"source_basis\\\": [\\\"course_material_agent | lecture_signal_agent | exam_pattern_agent | student_profile_agent | other\\\"],\",\n  \"      \\\"cross_source_links\\\": [\",\n  \"        {\",\n  \"          \\\"link_type\\\": \\\"string\\\",\",\n  \"          \\\"strength\\\": \\\"low | medium | high\\\",\",\n  \"          \\\"explanation\\\": \\\"string\\\"\",\n  \"        }\",\n  \"      ],\",\n  \"      \\\"ability_targets\\\": [\\\"memory | understanding | comparison | calculation | application | analysis | interpretation | other\\\"],\",\n  \"      \\\"missing_evidence_impact\\\": \\\"string_or_null\\\",\",\n  \"      \\\"caveats\\\": [\\\"string\\\"],\",\n  \"      \\\"not_a_prediction\\\": true\",\n  \"    }\",\n  \"  ],\",\n  \"  \\\"conflicts_or_gaps\\\": [\",\n  \"    {\",\n  \"      \\\"gap_type\\\": \\\"missing_source | weak_evidence | conflicting_evidence | unclear_mapping | other\\\",\",\n  \"      \\\"description\\\": \\\"string\\\",\",\n  \"      \\\"affected_candidates\\\": [\\\"focus_id\\\"]\",\n  \"    }\",\n  \"  ],\",\n  \"  \\\"uncertainties\\\": [\\\"string\\\"]\",\n  \"}\",\n  \"\",\n  \"Quality requirements:\",\n  \"- priority_score and evidence_confidence must be between 0 and 1.\",\n  \"- Do not use must-test, guaranteed, predicted, will appear, or similar wording.\",\n  \"- Set not_a_prediction to true for every candidate.\",\n  \"- If evidence coverage is minimal, avoid high evidence_confidence.\"\n].join(\"\\n\");\n\nreturn [{ json: { ...data, llm_payload: { system_prompt: systemPrompt, user_prompt: userPrompt } } }];\n"
+      },
+      "id": "05ef0001-0000-4000-8000-000000000008",
+      "name": "Build Synthesis Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1960,
+        760
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.jinmaoapi.top/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{ \"Bearer \" + $env.OPENAI_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ model: \"gpt-5.5\", temperature: 0.2, messages: [ { role: \"system\", content: $json.llm_payload.system_prompt }, { role: \"user\", content: $json.llm_payload.user_prompt } ] }) }}",
+        "options": {}
+      },
+      "id": "05ef0001-0000-4000-8000-000000000009",
+      "name": "HTTP OpenAI - Priority Synthesizer",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2260,
+        760
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst previous = $(\"Build Synthesis Prompt\").first().json;\nconst llmResult = $input.first().json;\n\nfunction pickRawOutput(value) {\n  if (typeof value === \"string\") return value;\n  if (value?.output !== undefined) return value.output;\n  if (value?.response?.text !== undefined) return value.response.text;\n  if (value?.generations?.[0]?.[0]?.text !== undefined) return value.generations[0][0].text;\n  if (value?.choices?.[0]?.message?.content !== undefined) return value.choices[0].message.content;\n  if (value?.text !== undefined) return value.text;\n  if (value?.response !== undefined) return value.response;\n  if (value?.message?.content !== undefined) return value.message.content;\n  return value;\n}\n\nfunction stripCodeFence(text) {\n  const fence = String.fromCharCode(96).repeat(3);\n  return text\n    .replace(new RegExp(\"^\" + fence + \"(?:json)?\\\\s*\", \"i\"), \"\")\n    .replace(new RegExp(\"\\\\s*\" + fence + \"$\", \"i\"), \"\")\n    .trim();\n}\n\nfunction parseJsonLoose(raw) {\n  if (raw && typeof raw === \"object\") {\n    raw = JSON.stringify(raw);\n  }\n\n  let text = String(raw ?? \"\").trim();\n  text = stripCodeFence(text);\n\n  try {\n    return JSON.parse(text);\n  } catch (firstError) {\n    const start = text.indexOf(\"{\");\n    const end = text.lastIndexOf(\"}\");\n    if (start >= 0 && end > start) {\n      const candidate = text.slice(start, end + 1);\n      return JSON.parse(candidate);\n    }\n    throw firstError;\n  }\n}\n\n\nlet parsed;\ntry {\n  parsed = parseJsonLoose(pickRawOutput(llmResult));\n} catch (error) {\n  parsed = {\n    workflow_name: \"evidence_fusion_agent\",\n    parser_error: true,\n    error_message: error.message,\n    evidence_coverage: previous.evidence_coverage,\n    fusion_summary: {\n      total_focus_candidates: 0,\n      high_priority_count: 0,\n      main_drivers: [\"parser_error\"],\n      global_uncertainty_level: \"high\"\n    },\n    review_focus_candidates: [],\n    conflicts_or_gaps: [],\n    uncertainties: [\"Could not parse Priority Synthesizer output.\"]\n  };\n}\n\nparsed.workflow_name = parsed.workflow_name || \"evidence_fusion_agent\";\nparsed.evidence_coverage = parsed.evidence_coverage || previous.evidence_coverage;\nparsed.fusion_summary = parsed.fusion_summary || {};\nparsed.review_focus_candidates = Array.isArray(parsed.review_focus_candidates) ? parsed.review_focus_candidates : [];\nparsed.conflicts_or_gaps = Array.isArray(parsed.conflicts_or_gaps) ? parsed.conflicts_or_gaps : [];\nparsed.uncertainties = Array.isArray(parsed.uncertainties) ? parsed.uncertainties : [];\n\nreturn [{ json: { ...previous, draft_fusion_output: parsed } }];\n"
+      },
+      "id": "05ef0001-0000-4000-8000-000000000010",
+      "name": "Parse Draft Fusion Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2560,
+        760
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst data = $input.first().json;\n\nconst systemPrompt = [\n  \"You are Local Evidence Critic in CourseLens Adaptive Evidence Fusion Agent.\",\n  \"\",\n  \"Your job is to audit a draft evidence fusion output for overreach, weak evidence, missing caveats, unsupported priorities, and exam-prediction language.\",\n  \"\",\n  \"Rules:\",\n  \"1. Be strict about unsupported claims.\",\n  \"2. Flag any wording that implies future exam prediction.\",\n  \"3. Flag any high confidence candidate with only one weak source.\",\n  \"4. Check whether every candidate has evidence IDs that exist in the evidence pool.\",\n  \"5. Return valid JSON only.\"\n].join(\"\\n\");\n\nconst userPrompt = [\n  \"Audit the draft fusion output.\",\n  \"\",\n  \"Evidence coverage:\",\n  JSON.stringify(data.evidence_coverage, null, 2),\n  \"\",\n  \"Evidence pool IDs:\",\n  JSON.stringify((data.evidence_pool || []).map(e => ({ evidence_id: e.evidence_id, source_agent: e.source_agent, evidence_type: e.evidence_type, topic_text: e.topic_text })), null, 2),\n  \"\",\n  \"Draft fusion output:\",\n  JSON.stringify(data.draft_fusion_output, null, 2),\n  \"\",\n  \"Return this exact JSON shape:\",\n  \"{\",\n  \"  \\\"workflow_name\\\": \\\"evidence_fusion_critic\\\",\",\n  \"  \\\"passed\\\": true,\",\n  \"  \\\"overall_risk_level\\\": \\\"low | medium | high\\\",\",\n  \"  \\\"overreach_flags\\\": [\",\n  \"    {\",\n  \"      \\\"candidate_id\\\": \\\"focus_id_or_global\\\",\",\n  \"      \\\"risk_type\\\": \\\"exam_prediction_language | unsupported_priority | overconfident_score | missing_evidence_chain | missing_caveat | invalid_evidence_id | other\\\",\",\n  \"      \\\"severity\\\": \\\"low | medium | high\\\",\",\n  \"      \\\"description\\\": \\\"string\\\",\",\n  \"      \\\"repair_instruction\\\": \\\"string\\\"\",\n  \"    }\",\n  \"  ],\",\n  \"  \\\"required_repairs\\\": [\\\"string\\\"],\",\n  \"  \\\"safe_to_finalize\\\": true\",\n  \"}\",\n  \"\",\n  \"Set passed and safe_to_finalize to false if any high severity issue exists.\"\n].join(\"\\n\");\n\nreturn [{ json: { ...data, llm_payload: { system_prompt: systemPrompt, user_prompt: userPrompt } } }];\n"
+      },
+      "id": "05ef0001-0000-4000-8000-000000000011",
+      "name": "Build Critic Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2860,
+        760
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.jinmaoapi.top/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{ \"Bearer \" + $env.OPENAI_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ model: \"gpt-5.5\", temperature: 0.2, messages: [ { role: \"system\", content: $json.llm_payload.system_prompt }, { role: \"user\", content: $json.llm_payload.user_prompt } ] }) }}",
+        "options": {}
+      },
+      "id": "05ef0001-0000-4000-8000-000000000012",
+      "name": "HTTP OpenAI - Local Evidence Critic",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3160,
+        760
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst previous = $(\"Build Critic Prompt\").first().json;\nconst llmResult = $input.first().json;\n\nfunction pickRawOutput(value) {\n  if (typeof value === \"string\") return value;\n  if (value?.output !== undefined) return value.output;\n  if (value?.response?.text !== undefined) return value.response.text;\n  if (value?.generations?.[0]?.[0]?.text !== undefined) return value.generations[0][0].text;\n  if (value?.choices?.[0]?.message?.content !== undefined) return value.choices[0].message.content;\n  if (value?.text !== undefined) return value.text;\n  if (value?.response !== undefined) return value.response;\n  if (value?.message?.content !== undefined) return value.message.content;\n  return value;\n}\n\nfunction stripCodeFence(text) {\n  const fence = String.fromCharCode(96).repeat(3);\n  return text\n    .replace(new RegExp(\"^\" + fence + \"(?:json)?\\\\s*\", \"i\"), \"\")\n    .replace(new RegExp(\"\\\\s*\" + fence + \"$\", \"i\"), \"\")\n    .trim();\n}\n\nfunction parseJsonLoose(raw) {\n  if (raw && typeof raw === \"object\") {\n    raw = JSON.stringify(raw);\n  }\n\n  let text = String(raw ?? \"\").trim();\n  text = stripCodeFence(text);\n\n  try {\n    return JSON.parse(text);\n  } catch (firstError) {\n    const start = text.indexOf(\"{\");\n    const end = text.lastIndexOf(\"}\");\n    if (start >= 0 && end > start) {\n      const candidate = text.slice(start, end + 1);\n      return JSON.parse(candidate);\n    }\n    throw firstError;\n  }\n}\n\n\nlet parsed;\ntry {\n  parsed = parseJsonLoose(pickRawOutput(llmResult));\n} catch (error) {\n  parsed = {\n    workflow_name: \"evidence_fusion_critic\",\n    passed: false,\n    overall_risk_level: \"high\",\n    overreach_flags: [{\n      candidate_id: \"global\",\n      risk_type: \"critic_parser_error\",\n      severity: \"high\",\n      description: \"Could not parse critic output: \" + error.message,\n      repair_instruction: \"Finalize conservatively and add parser uncertainty.\"\n    }],\n    required_repairs: [\"Add uncertainty because critic output could not be parsed.\"],\n    safe_to_finalize: false\n  };\n}\n\nparsed.workflow_name = parsed.workflow_name || \"evidence_fusion_critic\";\nparsed.overreach_flags = Array.isArray(parsed.overreach_flags) ? parsed.overreach_flags : [];\nparsed.required_repairs = Array.isArray(parsed.required_repairs) ? parsed.required_repairs : [];\nparsed.safe_to_finalize = parsed.safe_to_finalize === true && parsed.passed === true;\n\nreturn [{ json: { ...previous, critic_report: parsed } }];\n"
+      },
+      "id": "05ef0001-0000-4000-8000-000000000013",
+      "name": "Parse Critic Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3460,
+        760
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst data = $input.first().json;\n\nconst systemPrompt = [\n  \"You are Repair Analyst in CourseLens Adaptive Evidence Fusion Agent.\",\n  \"\",\n  \"Your job is to finalize the evidence fusion output. If the critic found problems, repair them by downgrading priority/confidence, adding caveats, removing unsupported language, and preserving evidence traceability. If the critic passed, return a clean finalized version.\",\n  \"\",\n  \"Rules:\",\n  \"1. Never add new evidence not present in the evidence pool.\",\n  \"2. Never predict future exam questions.\",\n  \"3. Do not use must-test, guaranteed, certain, predicted, will appear, or similar wording.\",\n  \"4. Keep output focused on review focus candidates, not a detailed schedule.\",\n  \"5. Return valid JSON only.\"\n].join(\"\\n\");\n\nconst userPrompt = [\n  \"Finalize or repair this evidence fusion output.\",\n  \"\",\n  \"Evidence coverage:\",\n  JSON.stringify(data.evidence_coverage, null, 2),\n  \"\",\n  \"Draft fusion output:\",\n  JSON.stringify(data.draft_fusion_output, null, 2),\n  \"\",\n  \"Critic report:\",\n  JSON.stringify(data.critic_report, null, 2),\n  \"\",\n  \"Return this exact JSON shape:\",\n  \"{\",\n  \"  \\\"workflow_name\\\": \\\"evidence_fusion_agent\\\",\",\n  \"  \\\"course_id\\\": \" + JSON.stringify(data.course_id) + \",\",\n  \"  \\\"course_name\\\": \" + JSON.stringify(data.course_name) + \",\",\n  \"  \\\"student_id\\\": \" + JSON.stringify(data.student_id) + \",\",\n  \"  \\\"evidence_coverage\\\": \" + JSON.stringify(data.evidence_coverage, null, 2) + \",\",\n  \"  \\\"fusion_summary\\\": {\",\n  \"    \\\"total_focus_candidates\\\": 0,\",\n  \"    \\\"high_priority_count\\\": 0,\",\n  \"    \\\"main_drivers\\\": [\\\"string\\\"],\",\n  \"    \\\"global_uncertainty_level\\\": \\\"low | medium | high\\\"\",\n  \"  },\",\n  \"  \\\"review_focus_candidates\\\": [\",\n  \"    {\",\n  \"      \\\"focus_id\\\": \\\"rf_001\\\",\",\n  \"      \\\"topic_or_concept\\\": \\\"string\\\",\",\n  \"      \\\"priority\\\": \\\"low | medium | high\\\",\",\n  \"      \\\"priority_score\\\": 0.75,\",\n  \"      \\\"evidence_confidence\\\": 0.7,\",\n  \"      \\\"why_priority\\\": \\\"string\\\",\",\n  \"      \\\"evidence_chain\\\": [\\\"evidence_id\\\"],\",\n  \"      \\\"source_basis\\\": [\\\"string\\\"],\",\n  \"      \\\"cross_source_links\\\": [\",\n  \"        {\",\n  \"          \\\"link_type\\\": \\\"string\\\",\",\n  \"          \\\"strength\\\": \\\"low | medium | high\\\",\",\n  \"          \\\"explanation\\\": \\\"string\\\"\",\n  \"        }\",\n  \"      ],\",\n  \"      \\\"ability_targets\\\": [\\\"string\\\"],\",\n  \"      \\\"missing_evidence_impact\\\": \\\"string_or_null\\\",\",\n  \"      \\\"caveats\\\": [\\\"string\\\"],\",\n  \"      \\\"not_a_prediction\\\": true\",\n  \"    }\",\n  \"  ],\",\n  \"  \\\"conflicts_or_gaps\\\": [\",\n  \"    {\",\n  \"      \\\"gap_type\\\": \\\"missing_source | weak_evidence | conflicting_evidence | unclear_mapping | other\\\",\",\n  \"      \\\"description\\\": \\\"string\\\",\",\n  \"      \\\"affected_candidates\\\": [\\\"focus_id\\\"]\",\n  \"    }\",\n  \"  ],\",\n  \"  \\\"critic_summary\\\": {\",\n  \"    \\\"critic_passed\\\": true,\",\n  \"    \\\"overall_risk_level\\\": \\\"low | medium | high\\\",\",\n  \"    \\\"repairs_applied\\\": [\\\"string\\\"]\",\n  \"  },\",\n  \"  \\\"uncertainties\\\": [\\\"string\\\"]\",\n  \"}\"\n].join(\"\\n\");\n\nreturn [{ json: { ...data, llm_payload: { system_prompt: systemPrompt, user_prompt: userPrompt } } }];\n"
+      },
+      "id": "05ef0001-0000-4000-8000-000000000014",
+      "name": "Build Repair Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3760,
+        760
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.jinmaoapi.top/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{ \"Bearer \" + $env.OPENAI_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ model: \"gpt-5.5\", temperature: 0.2, messages: [ { role: \"system\", content: $json.llm_payload.system_prompt }, { role: \"user\", content: $json.llm_payload.user_prompt } ] }) }}",
+        "options": {}
+      },
+      "id": "05ef0001-0000-4000-8000-000000000015",
+      "name": "HTTP OpenAI - Repair Fusion Output",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4060,
+        760
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst previous = $(\"Build Repair Prompt\").first().json;\nconst llmResult = $input.first().json;\n\nfunction pickRawOutput(value) {\n  if (typeof value === \"string\") return value;\n  if (value?.output !== undefined) return value.output;\n  if (value?.response?.text !== undefined) return value.response.text;\n  if (value?.generations?.[0]?.[0]?.text !== undefined) return value.generations[0][0].text;\n  if (value?.choices?.[0]?.message?.content !== undefined) return value.choices[0].message.content;\n  if (value?.text !== undefined) return value.text;\n  if (value?.response !== undefined) return value.response;\n  if (value?.message?.content !== undefined) return value.message.content;\n  return value;\n}\n\nfunction stripCodeFence(text) {\n  const fence = String.fromCharCode(96).repeat(3);\n  return text\n    .replace(new RegExp(\"^\" + fence + \"(?:json)?\\\\s*\", \"i\"), \"\")\n    .replace(new RegExp(\"\\\\s*\" + fence + \"$\", \"i\"), \"\")\n    .trim();\n}\n\nfunction parseJsonLoose(raw) {\n  if (raw && typeof raw === \"object\") {\n    raw = JSON.stringify(raw);\n  }\n\n  let text = String(raw ?? \"\").trim();\n  text = stripCodeFence(text);\n\n  try {\n    return JSON.parse(text);\n  } catch (firstError) {\n    const start = text.indexOf(\"{\");\n    const end = text.lastIndexOf(\"}\");\n    if (start >= 0 && end > start) {\n      const candidate = text.slice(start, end + 1);\n      return JSON.parse(candidate);\n    }\n    throw firstError;\n  }\n}\n\n\nlet parsed;\ntry {\n  parsed = parseJsonLoose(pickRawOutput(llmResult));\n} catch (error) {\n  parsed = {\n    ...previous.draft_fusion_output,\n    parser_error: true,\n    parser_error_message: error.message,\n    critic_summary: {\n      critic_passed: previous.critic_report.safe_to_finalize === true,\n      overall_risk_level: previous.critic_report.overall_risk_level || \"high\",\n      repairs_applied: [\"Final repair output could not be parsed; returning conservative draft with parser uncertainty.\"]\n    },\n    uncertainties: [\n      ...(previous.draft_fusion_output.uncertainties || []),\n      \"Final repair output could not be parsed.\"\n    ]\n  };\n}\n\nparsed.workflow_name = \"evidence_fusion_agent\";\nparsed.course_id = parsed.course_id || previous.course_id;\nparsed.course_name = parsed.course_name || previous.course_name;\nparsed.student_id = parsed.student_id ?? previous.student_id;\nparsed.evidence_coverage = parsed.evidence_coverage || previous.evidence_coverage;\nparsed.fusion_summary = parsed.fusion_summary || {};\nparsed.review_focus_candidates = Array.isArray(parsed.review_focus_candidates) ? parsed.review_focus_candidates : [];\nparsed.conflicts_or_gaps = Array.isArray(parsed.conflicts_or_gaps) ? parsed.conflicts_or_gaps : [];\nparsed.critic_summary = parsed.critic_summary || {\n  critic_passed: previous.critic_report.safe_to_finalize === true,\n  overall_risk_level: previous.critic_report.overall_risk_level || \"unknown\",\n  repairs_applied: []\n};\nparsed.uncertainties = Array.isArray(parsed.uncertainties) ? parsed.uncertainties : [];\n\nparsed.review_focus_candidates = parsed.review_focus_candidates.map((candidate, index) => ({\n  focus_id: candidate.focus_id || (\"rf_\" + String(index + 1).padStart(3, \"0\")),\n  topic_or_concept: candidate.topic_or_concept || \"Unknown focus\",\n  priority: [\"low\", \"medium\", \"high\"].includes(candidate.priority) ? candidate.priority : \"medium\",\n  priority_score: Math.max(0, Math.min(1, Number(candidate.priority_score ?? 0.5))),\n  evidence_confidence: Math.max(0, Math.min(1, Number(candidate.evidence_confidence ?? 0.5))),\n  why_priority: candidate.why_priority || \"\",\n  evidence_chain: Array.isArray(candidate.evidence_chain) ? candidate.evidence_chain : [],\n  source_basis: Array.isArray(candidate.source_basis) ? candidate.source_basis : [],\n  cross_source_links: Array.isArray(candidate.cross_source_links) ? candidate.cross_source_links : [],\n  ability_targets: Array.isArray(candidate.ability_targets) ? candidate.ability_targets : [],\n  missing_evidence_impact: candidate.missing_evidence_impact ?? null,\n  caveats: Array.isArray(candidate.caveats) ? candidate.caveats : [],\n  not_a_prediction: true\n}));\n\nparsed._agent_meta = {\n  agent_design: \"adaptive_branching_evidence_fusion_with_parallel_experts_synthesizer_critic_repair\",\n  http_llm_calls: 6,\n  parsed_at: new Date().toISOString(),\n  node: \"Parse Final Output\"\n};\n\nreturn [{ json: parsed }];\n"
+      },
+      "id": "05ef0001-0000-4000-8000-000000000016",
+      "name": "Parse Final Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4360,
+        760
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "05ef0001-0000-4000-8000-000000000017",
+      "name": "Respond - Evidence Fusion Map",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        4660,
+        760
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst evidencePreview = (data.evidence_pool || []).map(e => ({\n  evidence_id: e.evidence_id,\n  source_agent: e.source_agent,\n  evidence_type: e.evidence_type,\n  topic_text: e.topic_text,\n  strength: e.strength,\n  confidence: e.confidence,\n  evidence_text: e.evidence_text\n}));\n\nconst systemPrompt = [\n  \"You are Cross-Source Relevance Mapping Expert in CourseLens Adaptive Evidence Fusion Agent.\",\n  \"Your job is to find supported relevance links among available sources: material, lecture, exam pattern, and student profile.\",\n  \"Only build links supported by evidence. Do not predict future exam questions or say must-test.\",\n  \"Return valid JSON only.\"\n].join(\"\\n\");\n\nconst userPrompt = [\n  \"Build cross-source relevance links using available evidence only.\",\n  \"\",\n  \"Evidence coverage:\",\n  JSON.stringify(data.evidence_coverage, null, 2),\n  \"\",\n  \"Evidence pool:\",\n  JSON.stringify(evidencePreview, null, 2),\n  \"\",\n  \"Return JSON shape:\",\n  \"{\",\n  \"  \\\"workflow_name\\\": \\\"relevance_mapping_expert\\\",\",\n  \"  \\\"source_links\\\": [\",\n  \"    {\",\n  \"      \\\"link_id\\\": \\\"sl_001\\\",\",\n  \"      \\\"link_type\\\": \\\"material_to_lecture | material_to_exam | material_to_student | lecture_to_exam | lecture_to_student | exam_to_student | single_source_support | other\\\",\",\n  \"      \\\"topic_or_concept\\\": \\\"string\\\",\",\n  \"      \\\"strength\\\": \\\"low | medium | high\\\",\",\n  \"      \\\"supporting_evidence_ids\\\": [\\\"evidence_id\\\"],\",\n  \"      \\\"explanation\\\": \\\"string\\\",\",\n  \"      \\\"caveat\\\": \\\"string_or_null\\\"\",\n  \"    }\",\n  \"  ],\",\n  \"  \\\"relevance_uncertainties\\\": [\\\"string\\\"]\",\n  \"}\",\n  \"\",\n  \"Use cautious language: review relevance, not exam prediction.\"\n].join(\"\\n\");\n\nreturn [{ json: { ...data, llm_payload: { system_prompt: systemPrompt, user_prompt: userPrompt } } }];"
+      },
+      "id": "05ef0001-0000-4000-8000-000000000101",
+      "name": "Build Relevance Mapping Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        760,
+        1040
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.jinmaoapi.top/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{ \"Bearer \" + $env.OPENAI_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ model: \"gpt-5.5\", temperature: 0.2, messages: [ { role: \"system\", content: $json.llm_payload.system_prompt }, { role: \"user\", content: $json.llm_payload.user_prompt } ] }) }}",
+        "options": {}
+      },
+      "id": "05ef0001-0000-4000-8000-000000000102",
+      "name": "HTTP OpenAI - Relevance Mapping",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1060,
+        1040
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const previous = $(\"Build Relevance Mapping Prompt\").first().json;\nconst llmResult = $input.first().json;\nfunction pickRawOutput(value) {\n  if (typeof value === \"string\") return value;\n  if (value?.output !== undefined) return value.output;\n  if (value?.response?.text !== undefined) return value.response.text;\n  if (value?.generations?.[0]?.[0]?.text !== undefined) return value.generations[0][0].text;\n  if (value?.choices?.[0]?.message?.content !== undefined) return value.choices[0].message.content;\n  if (value?.text !== undefined) return value.text;\n  if (value?.response !== undefined) return value.response;\n  if (value?.message?.content !== undefined) return value.message.content;\n  return value;\n}\n\nfunction stripCodeFence(text) {\n  const fence = String.fromCharCode(96).repeat(3);\n  return text\n    .replace(new RegExp(\"^\" + fence + \"(?:json)?\\\\s*\", \"i\"), \"\")\n    .replace(new RegExp(\"\\\\s*\" + fence + \"$\", \"i\"), \"\")\n    .trim();\n}\n\nfunction parseJsonLoose(raw) {\n  if (raw && typeof raw === \"object\") raw = JSON.stringify(raw);\n  let text = String(raw ?? \"\").trim();\n  text = stripCodeFence(text);\n  try {\n    return JSON.parse(text);\n  } catch (firstError) {\n    const start = text.indexOf(\"{\");\n    const end = text.lastIndexOf(\"}\");\n    if (start >= 0 && end > start) return JSON.parse(text.slice(start, end + 1));\n    throw firstError;\n  }\n}\n\nlet parsed;\ntry {\n  parsed = parseJsonLoose(pickRawOutput(llmResult));\n} catch (error) {\n  parsed = {\n    workflow_name: \"relevance_mapping_expert\",\n    parser_error: true,\n    error_message: error.message,\n    source_links: [],\n    relevance_uncertainties: [\"Could not parse Relevance Mapping output.\"]\n  };\n}\n\nreturn [{ json: { ...previous, expert_role: \"relevance_mapping_result\", relevance_mapping_result: parsed } }];"
+      },
+      "id": "05ef0001-0000-4000-8000-000000000103",
+      "name": "Parse Relevance Mapping Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1360,
+        1040
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst systemPrompt = [\n  \"You are Missing Evidence Analyst in CourseLens Adaptive Evidence Fusion Agent.\",\n  \"Your job is to explain how missing upstream agent outputs limit the fusion result.\",\n  \"Do not invent evidence. Return valid JSON only.\"\n].join(\"\\n\");\n\nconst userPrompt = [\n  \"Analyze missing evidence impact.\",\n  \"\",\n  \"Evidence coverage:\",\n  JSON.stringify(data.evidence_coverage, null, 2),\n  \"\",\n  \"Available evidence type summary:\",\n  JSON.stringify((data.evidence_pool || []).map(e => ({ evidence_id: e.evidence_id, source_agent: e.source_agent, evidence_type: e.evidence_type, topic_text: e.topic_text })), null, 2),\n  \"\",\n  \"Return JSON shape:\",\n  \"{\",\n  \"  \\\"workflow_name\\\": \\\"missing_evidence_analyst\\\",\",\n  \"  \\\"missing_evidence_impacts\\\": [\",\n  \"    {\",\n  \"      \\\"missing_source\\\": \\\"lecture_signal_agent | exam_pattern_agent | course_material_agent | student_profile_agent | other\\\",\",\n  \"      \\\"impact\\\": \\\"string\\\",\",\n  \"      \\\"affected_concepts\\\": [\\\"string\\\"],\",\n  \"      \\\"confidence_effect\\\": \\\"lowers_confidence | prevents_mapping | no_major_effect\\\"\",\n  \"    }\",\n  \"  ],\",\n  \"  \\\"coverage_notes\\\": [\\\"string\\\"]\",\n  \"}\"\n].join(\"\\n\");\n\nreturn [{ json: { ...data, llm_payload: { system_prompt: systemPrompt, user_prompt: userPrompt } } }];"
+      },
+      "id": "05ef0001-0000-4000-8000-000000000104",
+      "name": "Build Missing Evidence Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        760,
+        1320
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.jinmaoapi.top/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{ \"Bearer \" + $env.OPENAI_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ model: \"gpt-5.5\", temperature: 0.2, messages: [ { role: \"system\", content: $json.llm_payload.system_prompt }, { role: \"user\", content: $json.llm_payload.user_prompt } ] }) }}",
+        "options": {}
+      },
+      "id": "05ef0001-0000-4000-8000-000000000105",
+      "name": "HTTP OpenAI - Missing Evidence Analyst",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1060,
+        1320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const previous = $(\"Build Missing Evidence Prompt\").first().json;\nconst llmResult = $input.first().json;\nfunction pickRawOutput(value) {\n  if (typeof value === \"string\") return value;\n  if (value?.output !== undefined) return value.output;\n  if (value?.response?.text !== undefined) return value.response.text;\n  if (value?.generations?.[0]?.[0]?.text !== undefined) return value.generations[0][0].text;\n  if (value?.choices?.[0]?.message?.content !== undefined) return value.choices[0].message.content;\n  if (value?.text !== undefined) return value.text;\n  if (value?.response !== undefined) return value.response;\n  if (value?.message?.content !== undefined) return value.message.content;\n  return value;\n}\n\nfunction stripCodeFence(text) {\n  const fence = String.fromCharCode(96).repeat(3);\n  return text\n    .replace(new RegExp(\"^\" + fence + \"(?:json)?\\\\s*\", \"i\"), \"\")\n    .replace(new RegExp(\"\\\\s*\" + fence + \"$\", \"i\"), \"\")\n    .trim();\n}\n\nfunction parseJsonLoose(raw) {\n  if (raw && typeof raw === \"object\") raw = JSON.stringify(raw);\n  let text = String(raw ?? \"\").trim();\n  text = stripCodeFence(text);\n  try {\n    return JSON.parse(text);\n  } catch (firstError) {\n    const start = text.indexOf(\"{\");\n    const end = text.lastIndexOf(\"}\");\n    if (start >= 0 && end > start) return JSON.parse(text.slice(start, end + 1));\n    throw firstError;\n  }\n}\n\nlet parsed;\ntry {\n  parsed = parseJsonLoose(pickRawOutput(llmResult));\n} catch (error) {\n  parsed = {\n    workflow_name: \"missing_evidence_analyst\",\n    parser_error: true,\n    error_message: error.message,\n    missing_evidence_impacts: [],\n    coverage_notes: [\"Could not parse Missing Evidence output.\"]\n  };\n}\n\nreturn [{ json: { ...previous, expert_role: \"missing_evidence_result\", missing_evidence_result: parsed } }];"
+      },
+      "id": "05ef0001-0000-4000-8000-000000000106",
+      "name": "Parse Missing Evidence Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1360,
+        1320
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "append"
+      },
+      "id": "05ef0001-0000-4000-8000-000000000107",
+      "name": "Merge Concept + Relevance",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        1600,
+        900
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "append"
+      },
+      "id": "05ef0001-0000-4000-8000-000000000108",
+      "name": "Merge Missing Evidence",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        1660,
+        1080
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook - Receive Available Agent Outputs": {
+      "main": [
+        [
+          {
+            "node": "Normalize Available Outputs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Available Outputs": {
+      "main": [
+        [
+          {
+            "node": "Build Concept Alignment Prompt",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Build Relevance Mapping Prompt",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Build Missing Evidence Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Concept Alignment Prompt": {
+      "main": [
+        [
+          {
+            "node": "HTTP OpenAI - Concept Alignment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP OpenAI - Concept Alignment": {
+      "main": [
+        [
+          {
+            "node": "Parse Concept Alignment Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Concept Alignment Result": {
+      "main": [
+        [
+          {
+            "node": "Merge Concept + Relevance",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Relevance Mapping Prompt": {
+      "main": [
+        [
+          {
+            "node": "HTTP OpenAI - Relevance Mapping",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP OpenAI - Relevance Mapping": {
+      "main": [
+        [
+          {
+            "node": "Parse Relevance Mapping Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Relevance Mapping Result": {
+      "main": [
+        [
+          {
+            "node": "Merge Concept + Relevance",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Build Missing Evidence Prompt": {
+      "main": [
+        [
+          {
+            "node": "HTTP OpenAI - Missing Evidence Analyst",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP OpenAI - Missing Evidence Analyst": {
+      "main": [
+        [
+          {
+            "node": "Parse Missing Evidence Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Concept + Relevance": {
+      "main": [
+        [
+          {
+            "node": "Merge Missing Evidence",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Missing Evidence Result": {
+      "main": [
+        [
+          {
+            "node": "Merge Missing Evidence",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Missing Evidence": {
+      "main": [
+        [
+          {
+            "node": "Build Fusion Board",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Fusion Board": {
+      "main": [
+        [
+          {
+            "node": "Build Synthesis Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Synthesis Prompt": {
+      "main": [
+        [
+          {
+            "node": "HTTP OpenAI - Priority Synthesizer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP OpenAI - Priority Synthesizer": {
+      "main": [
+        [
+          {
+            "node": "Parse Draft Fusion Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Draft Fusion Output": {
+      "main": [
+        [
+          {
+            "node": "Build Critic Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Critic Prompt": {
+      "main": [
+        [
+          {
+            "node": "HTTP OpenAI - Local Evidence Critic",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP OpenAI - Local Evidence Critic": {
+      "main": [
+        [
+          {
+            "node": "Parse Critic Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Critic Report": {
+      "main": [
+        [
+          {
+            "node": "Build Repair Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Repair Prompt": {
+      "main": [
+        [
+          {
+            "node": "HTTP OpenAI - Repair Fusion Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP OpenAI - Repair Fusion Output": {
+      "main": [
+        [
+          {
+            "node": "Parse Final Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Final Output": {
+      "main": [
+        [
+          {
+            "node": "Respond - Evidence Fusion Map",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "05ef0001-0000-4000-8000-000000000018",
+  "meta": {
+    "instanceId": "3f9be7f6047d75e769a4766192c647b7334f96d0db74013fe718e9c11646cd32"
+  },
+  "id": "adaptiveEvidenceFusionAgentV1",
+  "tags": [
+    {
+      "updatedAt": "2026-07-04T13:00:00.000Z",
+      "createdAt": "2026-07-04T13:00:00.000Z",
+      "id": "CourseLensTag",
+      "name": "CourseLens"
+    },
+    {
+      "updatedAt": "2026-07-04T13:00:00.000Z",
+      "createdAt": "2026-07-04T13:00:00.000Z",
+      "id": "AgentWorkflowTag",
+      "name": "AgentWorkflow"
+    }
+  ]
+}
+

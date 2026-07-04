@@ -1,0 +1,388 @@
+{
+  "name": "CourseLens - 06 Review Strategy / Critic Agent v1 Demand-Aware HTTP OpenAI",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "Review Strategy / Critic Agent v1 - Demand-Aware\n\nPurpose:\nGenerate a personalized, evidence-grounded review strategy from a user review request, the Evidence Fusion Agent output, and optional Student Profile Agent output.\n\nDesign:\n- Normalize request + fusion + profile inputs.\n- Draft a review strategy that respects user needs and evidence boundaries.\n- Critic checks prediction risk, unsupported claims, ignored user constraints, caveats, and unrealistic time planning.\n- Repair/finalize returns the final Evidence-Grounded Review Report.\n\nBoundary:\nThis workflow does not decide which upstream agents to call. That belongs to the Orchestrator. It also does not predict exam questions, guarantee scores, or turn historical patterns into future certainty.",
+        "height": 500,
+        "width": 560,
+        "color": 5
+      },
+      "id": "06rs0001-0000-4000-8000-000000000001",
+      "name": "Workflow Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        160,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "review-strategy-critic-agent",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "06rs0001-0000-4000-8000-000000000002",
+      "name": "Webhook - Receive Strategy Request",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        160,
+        780
+      ],
+      "webhookId": "review-strategy-critic-agent"
+    },
+    {
+      "parameters": {
+        "jsCode": "const incoming = $input.first()?.json ?? {};\nconst body = incoming.body ?? incoming;\n\nfunction firstPresent(...values) {\n  return values.find(value => value !== undefined && value !== null);\n}\n\nfunction asArray(value) {\n  if (Array.isArray(value)) return value;\n  if (value === undefined || value === null || value === \"\") return [];\n  return [value];\n}\n\nfunction compact(value) {\n  return asArray(value).map(v => String(v).trim()).filter(Boolean);\n}\n\nfunction numberOrNull(value) {\n  const n = Number(value);\n  return Number.isFinite(n) ? n : null;\n}\n\nfunction timePressure(totalHours, daysLeft) {\n  const total = numberOrNull(totalHours);\n  const days = numberOrNull(daysLeft);\n  if (total === null && days === null) return \"unknown\";\n  if ((total !== null && total <= 8) || (days !== null && days <= 2)) return \"high\";\n  if ((total !== null && total <= 20) || (days !== null && days <= 5)) return \"medium\";\n  return \"low\";\n}\n\nconst evidenceFusionMap = firstPresent(body.evidence_fusion_map, body.evidenceFusionMap, body.fusion_map, body.fusionMap, body.evidence_fusion_agent_output, body.evidenceFusionAgentOutput, {});\nconst studentProfileMap = firstPresent(body.student_profile_map, body.studentProfileMap, body.profile_map, body.profileMap, body.student_profile_agent_output, body.studentProfileAgentOutput, {});\nconst userRequest = firstPresent(body.user_review_request, body.userReviewRequest, body.review_request, body.reviewRequest, body.request, {});\nconst strategyOptions = firstPresent(body.strategy_options, body.strategyOptions, {});\n\nconst courseId = firstPresent(body.course_id, body.courseId, evidenceFusionMap.course_id, studentProfileMap.course_id, \"course_unknown\");\nconst courseName = firstPresent(body.course_name, body.courseName, evidenceFusionMap.course_name, studentProfileMap.course_name, \"Unknown Course\");\nconst studentId = firstPresent(body.student_id, body.studentId, evidenceFusionMap.student_id, studentProfileMap.student_id, \"student_unknown\");\n\nconst requestAvailableTime = firstPresent(userRequest.available_time, userRequest.availableTime, body.available_time, body.availableTime, {});\nconst profileTime = firstPresent(studentProfileMap.time_profile, studentProfileMap.timeProfile, {});\nconst bodyTime = firstPresent(body.time_profile, body.timeProfile, body.time_constraints, body.timeConstraints, {});\nconst selectedTime = Object.keys(requestAvailableTime || {}).length ? requestAvailableTime : (Object.keys(bodyTime || {}).length ? bodyTime : profileTime);\n\nconst daysLeft = firstPresent(selectedTime.days_left, selectedTime.daysLeft, userRequest.days_left, userRequest.daysLeft, body.days_left, body.daysLeft, null);\nconst hoursPerDay = firstPresent(selectedTime.hours_per_day, selectedTime.hoursPerDay, userRequest.hours_per_day, userRequest.hoursPerDay, body.hours_per_day, body.hoursPerDay, null);\nconst explicitTotalHours = firstPresent(selectedTime.estimated_total_hours, selectedTime.estimatedTotalHours, selectedTime.total_hours, selectedTime.totalHours, userRequest.estimated_total_hours, userRequest.estimatedTotalHours, body.estimated_total_hours, body.estimatedTotalHours, null);\nconst estimatedTotalHours = numberOrNull(explicitTotalHours) ?? ((numberOrNull(daysLeft) !== null && numberOrNull(hoursPerDay) !== null) ? numberOrNull(daysLeft) * numberOrNull(hoursPerDay) : null);\n\nconst requestProfile = {\n  raw_request: firstPresent(userRequest.raw_request, userRequest.rawRequest, userRequest.text, body.raw_request, body.rawRequest, body.text, \"\"),\n  goal: firstPresent(userRequest.goal, userRequest.review_goal, userRequest.reviewGoal, strategyOptions.goal, \"unknown\"),\n  target_level: firstPresent(userRequest.target_level, userRequest.targetLevel, userRequest.target_score, userRequest.targetScore, studentProfileMap.profile_summary?.target_level, studentProfileMap.profileSummary?.targetLevel, body.target_level, body.targetLevel, null),\n  language: firstPresent(userRequest.language, strategyOptions.language, body.language, \"zh\"),\n  preferred_focus: compact(firstPresent(userRequest.preferred_focus, userRequest.preferredFocus, userRequest.focus, strategyOptions.preferred_focus, strategyOptions.preferredFocus, [])),\n  preferred_output: compact(firstPresent(userRequest.preferred_output, userRequest.preferredOutput, userRequest.output_format, userRequest.outputFormat, strategyOptions.preferred_output, strategyOptions.preferredOutput, [])),\n  constraints: compact(firstPresent(userRequest.constraints, strategyOptions.constraints, body.constraints, []))\n};\n\nconst timeProfile = {\n  days_left: numberOrNull(daysLeft),\n  hours_per_day: numberOrNull(hoursPerDay),\n  estimated_total_hours: estimatedTotalHours,\n  time_pressure: firstPresent(selectedTime.time_pressure, selectedTime.timePressure, profileTime.time_pressure, profileTime.timePressure, timePressure(estimatedTotalHours, daysLeft)),\n  source_priority: Object.keys(requestAvailableTime || {}).length ? \"user_review_request\" : (Object.keys(bodyTime || {}).length ? \"direct_input\" : \"student_profile_map\"),\n  notes: firstPresent(selectedTime.notes, profileTime.notes, null)\n};\n\nlet focusCandidates = asArray(firstPresent(evidenceFusionMap.review_focus_candidates, evidenceFusionMap.reviewFocusCandidates, body.review_focus_candidates, body.reviewFocusCandidates, body.focus_candidates, body.focusCandidates, []));\nconst maxFocusItems = numberOrNull(firstPresent(strategyOptions.max_focus_items, strategyOptions.maxFocusItems, userRequest.max_focus_items, userRequest.maxFocusItems, null));\nif (maxFocusItems !== null && maxFocusItems > 0) focusCandidates = focusCandidates.slice(0, maxFocusItems);\n\nconst inputWarnings = [];\nif (!requestProfile.raw_request) inputWarnings.push(\"No raw user review request was provided. Strategy will rely on structured options and evidence only.\");\nif (!focusCandidates.length) inputWarnings.push(\"No review_focus_candidates were found. The final report should mark evidence as insufficient.\");\nif (timeProfile.estimated_total_hours === null && !timeProfile.days_left) inputWarnings.push(\"No clear time budget was provided. Avoid precise daily scheduling.\");\nif (!evidenceFusionMap || !Object.keys(evidenceFusionMap).length) inputWarnings.push(\"No evidence_fusion_map was provided.\");\n\nreturn [{\n  json: {\n    workflow_name: \"review_strategy_critic_agent\",\n    course_id: courseId,\n    course_name: courseName,\n    student_id: studentId,\n    request_profile: requestProfile,\n    time_profile: timeProfile,\n    strategy_options: {\n      planning_style: firstPresent(strategyOptions.planning_style, strategyOptions.planningStyle, \"time_boxed\"),\n      risk_tolerance: firstPresent(strategyOptions.risk_tolerance, strategyOptions.riskTolerance, \"conservative\"),\n      max_focus_items: maxFocusItems ?? 8,\n      include_daily_plan: firstPresent(strategyOptions.include_daily_plan, strategyOptions.includeDailyPlan, true),\n      include_low_confidence_items: firstPresent(strategyOptions.include_low_confidence_items, strategyOptions.includeLowConfidenceItems, true),\n      include_checklist: firstPresent(strategyOptions.include_checklist, strategyOptions.includeChecklist, true)\n    },\n    evidence_coverage: firstPresent(evidenceFusionMap.evidence_coverage, evidenceFusionMap.evidenceCoverage, {}),\n    fusion_summary: firstPresent(evidenceFusionMap.fusion_summary, evidenceFusionMap.fusionSummary, {}),\n    focus_candidates: focusCandidates,\n    conflicts_or_gaps: asArray(firstPresent(evidenceFusionMap.conflicts_or_gaps, evidenceFusionMap.conflictsOrGaps, [])),\n    fusion_uncertainties: asArray(firstPresent(evidenceFusionMap.uncertainties, [])),\n    student_weaknesses: asArray(firstPresent(studentProfileMap.weaknesses, [])),\n    mistake_patterns: asArray(firstPresent(studentProfileMap.mistake_patterns, studentProfileMap.mistakePatterns, [])),\n    risk_flags: asArray(firstPresent(studentProfileMap.risk_flags, studentProfileMap.riskFlags, [])),\n    learning_preferences: firstPresent(studentProfileMap.learning_preferences, studentProfileMap.learningPreferences, {}),\n    input_warnings: inputWarnings,\n    constraints: {\n      no_exam_prediction: true,\n      no_must_test_language: true,\n      no_score_guarantee: true,\n      every_key_recommendation_needs_evidence_basis: true,\n      preserve_fusion_caveats: true,\n      user_preference_can_adjust_order_but_not_override_evidence_boundary: true\n    }\n  }\n}];"
+      },
+      "id": "06rs0001-0000-4000-8000-000000000003",
+      "name": "Normalize Strategy Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        780
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\n\nfunction previewCandidates(candidates) {\n  return (candidates || []).map(candidate => ({\n    focus_id: candidate.focus_id,\n    topic_or_concept: candidate.topic_or_concept,\n    priority: candidate.priority,\n    priority_score: candidate.priority_score,\n    evidence_confidence: candidate.evidence_confidence,\n    why_priority: candidate.why_priority,\n    evidence_chain: candidate.evidence_chain,\n    source_basis: candidate.source_basis,\n    ability_targets: candidate.ability_targets,\n    missing_evidence_impact: candidate.missing_evidence_impact,\n    caveats: candidate.caveats,\n    not_a_prediction: candidate.not_a_prediction\n  }));\n}\n\nconst systemPrompt = `You are Review Strategy / Critic Agent in CourseLens, a multi-agent course review system.\n\nYour job in this step is to draft a personalized, evidence-grounded review strategy from:\n1. the user's review request,\n2. the Evidence Fusion Agent's review focus candidates,\n3. optional student profile information.\n\nRules:\n- Generate review strategy, not exam prediction.\n- Do not use language equivalent to 必考, 押题, 今年会考, guaranteed, must-test, high probability to appear, or will appear.\n- Do not guarantee scores or outcomes.\n- User preferences can shape ordering and format, but cannot override evidence caveats.\n- Preserve caveats from the fusion map, especially caveats about historical exam patterns.\n- If time information is missing, do not invent a precise daily schedule.\n- If evidence is insufficient, say so and produce a conservative strategy.\n- Every high-priority item must include evidence_basis with evidence_chain or source_basis.\n- Return valid JSON only. Do not wrap in Markdown.`;\n\nconst userPrompt = `Draft an Evidence-Grounded Review Report.\n\nCourse ID: ${data.course_id}\nCourse name: ${data.course_name}\nStudent ID: ${data.student_id}\n\nUser review request profile:\n${JSON.stringify(data.request_profile, null, 2)}\n\nTime profile:\n${JSON.stringify(data.time_profile, null, 2)}\n\nStrategy options:\n${JSON.stringify(data.strategy_options, null, 2)}\n\nEvidence coverage:\n${JSON.stringify(data.evidence_coverage, null, 2)}\n\nFusion summary:\n${JSON.stringify(data.fusion_summary, null, 2)}\n\nReview focus candidates from Evidence Fusion Agent:\n${JSON.stringify(previewCandidates(data.focus_candidates), null, 2)}\n\nStudent weaknesses:\n${JSON.stringify(data.student_weaknesses, null, 2)}\n\nMistake patterns:\n${JSON.stringify(data.mistake_patterns, null, 2)}\n\nRisk flags:\n${JSON.stringify(data.risk_flags, null, 2)}\n\nConflicts or gaps:\n${JSON.stringify(data.conflicts_or_gaps, null, 2)}\n\nInput warnings:\n${JSON.stringify(data.input_warnings, null, 2)}\n\nReturn this exact JSON shape:\n{\n  \"workflow_name\": \"review_strategy_critic_agent\",\n  \"course_id\": \"${data.course_id}\",\n  \"course_name\": \"${data.course_name}\",\n  \"student_id\": \"${data.student_id}\",\n  \"report_title\": \"Evidence-Grounded Review Report\",\n  \"request_interpretation\": {\n    \"raw_request\": \"string\",\n    \"interpreted_goal\": \"score_improvement | pass_exam | quick_review | full_review | weak_point_fix | practice_oriented | unknown\",\n    \"planning_style\": \"time_boxed | priority_only | checklist | mixed\",\n    \"preferred_focus\": [\"string\"],\n    \"preferred_output\": [\"string\"],\n    \"evidence_boundary\": \"string\"\n  },\n  \"strategy_summary\": {\n    \"available_study_time_hours\": 12,\n    \"overall_strategy\": \"string\",\n    \"priority_rule\": \"string\",\n    \"time_allocation_rule\": \"string\"\n  },\n  \"prioritized_review_plan\": [\n    {\n      \"rank\": 1,\n      \"focus_id\": \"rf_001_or_null\",\n      \"topic_or_concept\": \"string\",\n      \"priority\": \"low | medium | high\",\n      \"recommended_time_hours\": 1.5,\n      \"why_this_matters\": \"string\",\n      \"learning_goal\": \"string\",\n      \"practice_actions\": [\"string\"],\n      \"success_check\": [\"string\"],\n      \"evidence_basis\": {\n        \"priority_score\": 0.8,\n        \"evidence_confidence\": 0.75,\n        \"source_basis\": [\"string\"],\n        \"evidence_chain\": [\"string\"],\n        \"caveats\": [\"string\"]\n      },\n      \"not_a_prediction\": true\n    }\n  ],\n  \"daily_schedule\": [\n    {\n      \"day\": 1,\n      \"estimated_hours\": 4,\n      \"main_goal\": \"string\",\n      \"tasks\": [\n        {\n          \"topic_or_concept\": \"string\",\n          \"time_hours\": 1.5,\n          \"task_type\": \"concept_review | calculation_practice | application_practice | mistake_review | summary | mixed\",\n          \"expected_output\": \"string\"\n        }\n      ]\n    }\n  ],\n  \"request_specific_advice\": [\n    {\n      \"user_need\": \"string\",\n      \"response\": \"string\"\n    }\n  ],\n  \"low_confidence_items\": [\n    {\n      \"topic_or_concept\": \"string\",\n      \"reason\": \"string\",\n      \"suggested_action\": \"string\"\n    }\n  ],\n  \"risk_controls\": [\n    {\n      \"risk_type\": \"limited_time | low_evidence | score_guarantee | missing_material | over_focus | other\",\n      \"strategy\": \"string\"\n    }\n  ],\n  \"draft_notes\": {\n    \"used_user_constraints\": [\"string\"],\n    \"preserved_caveats\": [\"string\"]\n  },\n  \"uncertainties\": [\"string\"]\n}\n\nQuality requirements:\n- If include_daily_plan is false or time budget is unknown, daily_schedule should be an empty array.\n- Recommended time should be realistic and should not exceed available_study_time_hours when a total budget exists.\n- If no focus candidates are available, produce an insufficient-evidence report with empty or very limited prioritized_review_plan.\n- Keep the report useful for a student, but evidence-grounded and conservative.`;\n\nreturn [{ json: { ...data, llm_payload: { system_prompt: systemPrompt, user_prompt: userPrompt } } }];"
+      },
+      "id": "06rs0001-0000-4000-8000-000000000004",
+      "name": "Build Draft Strategy Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        760,
+        780
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.jinmaoapi.top/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{ \"Bearer \" + $env.OPENAI_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ model: \"gpt-5.5\", temperature: 0.2, messages: [ { role: \"system\", content: $json.llm_payload.system_prompt }, { role: \"user\", content: $json.llm_payload.user_prompt } ] }) }}",
+        "options": {}
+      },
+      "id": "06rs0001-0000-4000-8000-000000000005",
+      "name": "HTTP OpenAI - Draft Review Strategy",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1060,
+        780
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const previous = $(\"Build Draft Strategy Prompt\").first().json;\nconst llmResult = $input.first().json;\n\nfunction pickRawOutput(value) {\n  if (typeof value === \"string\") return value;\n  if (value?.output !== undefined) return value.output;\n  if (value?.response?.text !== undefined) return value.response.text;\n  if (value?.generations?.[0]?.[0]?.text !== undefined) return value.generations[0][0].text;\n  if (value?.choices?.[0]?.message?.content !== undefined) return value.choices[0].message.content;\n  if (value?.text !== undefined) return value.text;\n  if (value?.response !== undefined) return value.response;\n  if (value?.message?.content !== undefined) return value.message.content;\n  return value;\n}\n\nfunction stripCodeFence(text) {\n  const fence = String.fromCharCode(96).repeat(3);\n  return text.replace(new RegExp(\"^\" + fence + \"(?:json)?\\\\s*\", \"i\"), \"\").replace(new RegExp(\"\\\\s*\" + fence + \"$\", \"i\"), \"\").trim();\n}\n\nfunction parseJsonLoose(raw) {\n  if (raw && typeof raw === \"object\") raw = JSON.stringify(raw);\n  let text = stripCodeFence(String(raw ?? \"\").trim());\n  try {\n    return JSON.parse(text);\n  } catch (firstError) {\n    const start = text.indexOf(\"{\");\n    const end = text.lastIndexOf(\"}\");\n    if (start >= 0 && end > start) return JSON.parse(text.slice(start, end + 1));\n    throw firstError;\n  }\n}\n\nlet parsed;\ntry {\n  parsed = parseJsonLoose(pickRawOutput(llmResult));\n} catch (error) {\n  parsed = {\n    workflow_name: \"review_strategy_critic_agent\",\n    parser_error: true,\n    error_message: error.message,\n    course_id: previous.course_id,\n    course_name: previous.course_name,\n    student_id: previous.student_id,\n    report_title: \"Evidence-Grounded Review Report\",\n    request_interpretation: {\n      raw_request: previous.request_profile.raw_request || \"\",\n      interpreted_goal: previous.request_profile.goal || \"unknown\",\n      planning_style: previous.strategy_options.planning_style || \"mixed\",\n      preferred_focus: previous.request_profile.preferred_focus || [],\n      preferred_output: previous.request_profile.preferred_output || [],\n      evidence_boundary: \"This report gives review relevance suggestions only and does not predict exam content or guarantee scores.\"\n    },\n    strategy_summary: {\n      available_study_time_hours: previous.time_profile.estimated_total_hours,\n      overall_strategy: \"Draft generation failed, so no reliable strategy can be produced.\",\n      priority_rule: \"Insufficient parsed draft output.\",\n      time_allocation_rule: \"No precise allocation.\"\n    },\n    prioritized_review_plan: [],\n    daily_schedule: [],\n    request_specific_advice: [],\n    low_confidence_items: [],\n    risk_controls: [{ risk_type: \"low_evidence\", strategy: \"Retry the model call or inspect the raw output before using this report.\" }],\n    draft_notes: { used_user_constraints: [], preserved_caveats: [] },\n    uncertainties: [\"Could not parse Draft Review Strategy output.\"]\n  };\n}\n\nparsed.workflow_name = parsed.workflow_name || \"review_strategy_critic_agent\";\nparsed.prioritized_review_plan = Array.isArray(parsed.prioritized_review_plan) ? parsed.prioritized_review_plan : [];\nparsed.daily_schedule = Array.isArray(parsed.daily_schedule) ? parsed.daily_schedule : [];\nparsed.request_specific_advice = Array.isArray(parsed.request_specific_advice) ? parsed.request_specific_advice : [];\nparsed.low_confidence_items = Array.isArray(parsed.low_confidence_items) ? parsed.low_confidence_items : [];\nparsed.risk_controls = Array.isArray(parsed.risk_controls) ? parsed.risk_controls : [];\nparsed.uncertainties = Array.isArray(parsed.uncertainties) ? parsed.uncertainties : [];\n\nreturn [{ json: { ...previous, draft_review_report: parsed } }];"
+      },
+      "id": "06rs0001-0000-4000-8000-000000000006",
+      "name": "Parse Draft Strategy JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1360,
+        780
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\n\nconst systemPrompt = `You are Strategy Critic in CourseLens Review Strategy / Critic Agent.\n\nYour job is to audit a draft review report. You do not rewrite the whole report in this step.\n\nCheck for:\n1. exam prediction or must-test language,\n2. score guarantee or outcome guarantee,\n3. unsupported claims without evidence_basis,\n4. ignored caveats from the fusion map,\n5. ignored user constraints or preferences,\n6. unrealistic time plan,\n7. overconfident treatment of low evidence,\n8. missing not_a_prediction flags.\n\nReturn valid JSON only.`;\n\nconst userPrompt = `Criticize the draft review report.\n\nOriginal normalized input:\n${JSON.stringify({\n  course_id: data.course_id,\n  course_name: data.course_name,\n  student_id: data.student_id,\n  request_profile: data.request_profile,\n  time_profile: data.time_profile,\n  strategy_options: data.strategy_options,\n  evidence_coverage: data.evidence_coverage,\n  input_warnings: data.input_warnings,\n  conflicts_or_gaps: data.conflicts_or_gaps,\n  fusion_uncertainties: data.fusion_uncertainties\n}, null, 2)}\n\nDraft review report:\n${JSON.stringify(data.draft_review_report, null, 2)}\n\nReturn this exact JSON shape:\n{\n  \"workflow_name\": \"strategy_critic\",\n  \"critic_passed\": true,\n  \"overall_risk_level\": \"low | medium | high\",\n  \"prediction_risk\": \"none | low | medium | high\",\n  \"score_guarantee_risk\": \"none | low | medium | high\",\n  \"unsupported_claims\": [\n    {\n      \"location\": \"string\",\n      \"claim\": \"string\",\n      \"reason\": \"string\"\n    }\n  ],\n  \"overconfident_language\": [\n    {\n      \"location\": \"string\",\n      \"text\": \"string\",\n      \"suggested_rewrite\": \"string\"\n    }\n  ],\n  \"missing_evidence_links\": [\n    {\n      \"location\": \"string\",\n      \"issue\": \"string\"\n    }\n  ],\n  \"ignored_user_constraints\": [\n    {\n      \"constraint\": \"string\",\n      \"issue\": \"string\"\n    }\n  ],\n  \"ignored_caveats\": [\n    {\n      \"caveat\": \"string\",\n      \"issue\": \"string\"\n    }\n  ],\n  \"unrealistic_time_plan\": [\n    {\n      \"location\": \"string\",\n      \"issue\": \"string\",\n      \"suggested_fix\": \"string\"\n    }\n  ],\n  \"repair_instructions\": [\"string\"],\n  \"remaining_caveats\": [\"string\"]\n}\n\nSet critic_passed to false if any high-risk issue exists or if repair is needed.`;\n\nreturn [{ json: { ...data, llm_payload: { system_prompt: systemPrompt, user_prompt: userPrompt } } }];"
+      },
+      "id": "06rs0001-0000-4000-8000-000000000007",
+      "name": "Build Critic Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1660,
+        780
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.jinmaoapi.top/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{ \"Bearer \" + $env.OPENAI_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ model: \"gpt-5.5\", temperature: 0.2, messages: [ { role: \"system\", content: $json.llm_payload.system_prompt }, { role: \"user\", content: $json.llm_payload.user_prompt } ] }) }}",
+        "options": {}
+      },
+      "id": "06rs0001-0000-4000-8000-000000000008",
+      "name": "HTTP OpenAI - Strategy Critic",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1960,
+        780
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const previous = $(\"Build Critic Prompt\").first().json;\nconst llmResult = $input.first().json;\n\nfunction pickRawOutput(value) {\n  if (typeof value === \"string\") return value;\n  if (value?.output !== undefined) return value.output;\n  if (value?.response?.text !== undefined) return value.response.text;\n  if (value?.generations?.[0]?.[0]?.text !== undefined) return value.generations[0][0].text;\n  if (value?.choices?.[0]?.message?.content !== undefined) return value.choices[0].message.content;\n  if (value?.text !== undefined) return value.text;\n  if (value?.response !== undefined) return value.response;\n  if (value?.message?.content !== undefined) return value.message.content;\n  return value;\n}\n\nfunction stripCodeFence(text) {\n  const fence = String.fromCharCode(96).repeat(3);\n  return text.replace(new RegExp(\"^\" + fence + \"(?:json)?\\\\s*\", \"i\"), \"\").replace(new RegExp(\"\\\\s*\" + fence + \"$\", \"i\"), \"\").trim();\n}\n\nfunction parseJsonLoose(raw) {\n  if (raw && typeof raw === \"object\") raw = JSON.stringify(raw);\n  let text = stripCodeFence(String(raw ?? \"\").trim());\n  try {\n    return JSON.parse(text);\n  } catch (firstError) {\n    const start = text.indexOf(\"{\");\n    const end = text.lastIndexOf(\"}\");\n    if (start >= 0 && end > start) return JSON.parse(text.slice(start, end + 1));\n    throw firstError;\n  }\n}\n\nlet parsed;\ntry {\n  parsed = parseJsonLoose(pickRawOutput(llmResult));\n} catch (error) {\n  parsed = {\n    workflow_name: \"strategy_critic\",\n    critic_passed: false,\n    overall_risk_level: \"high\",\n    prediction_risk: \"medium\",\n    score_guarantee_risk: \"medium\",\n    unsupported_claims: [],\n    overconfident_language: [],\n    missing_evidence_links: [],\n    ignored_user_constraints: [],\n    ignored_caveats: [],\n    unrealistic_time_plan: [],\n    repair_instructions: [\"Critic output could not be parsed. Repair should conservatively preserve caveats, remove prediction-like language, and avoid unsupported detail.\"],\n    remaining_caveats: [\"Critic parser failed, so final report should be treated cautiously.\"],\n    parser_error: true,\n    error_message: error.message\n  };\n}\n\nparsed.workflow_name = parsed.workflow_name || \"strategy_critic\";\nparsed.unsupported_claims = Array.isArray(parsed.unsupported_claims) ? parsed.unsupported_claims : [];\nparsed.overconfident_language = Array.isArray(parsed.overconfident_language) ? parsed.overconfident_language : [];\nparsed.missing_evidence_links = Array.isArray(parsed.missing_evidence_links) ? parsed.missing_evidence_links : [];\nparsed.ignored_user_constraints = Array.isArray(parsed.ignored_user_constraints) ? parsed.ignored_user_constraints : [];\nparsed.ignored_caveats = Array.isArray(parsed.ignored_caveats) ? parsed.ignored_caveats : [];\nparsed.unrealistic_time_plan = Array.isArray(parsed.unrealistic_time_plan) ? parsed.unrealistic_time_plan : [];\nparsed.repair_instructions = Array.isArray(parsed.repair_instructions) ? parsed.repair_instructions : [];\nparsed.remaining_caveats = Array.isArray(parsed.remaining_caveats) ? parsed.remaining_caveats : [];\n\nreturn [{ json: { ...previous, critic_report: parsed } }];"
+      },
+      "id": "06rs0001-0000-4000-8000-000000000009",
+      "name": "Parse Critic Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2260,
+        780
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\n\nconst systemPrompt = `You are Repair/Finalize step in CourseLens Review Strategy / Critic Agent.\n\nYour job is to revise the draft review report according to the critic report and return the final Evidence-Grounded Review Report.\n\nRules:\n- Remove or soften any prediction-like, must-test, or score-guarantee language.\n- Preserve user needs where they are compatible with evidence boundaries.\n- Preserve caveats from the Evidence Fusion Agent and the critic.\n- Ensure each prioritized item has evidence_basis and not_a_prediction: true.\n- If evidence or time is insufficient, explicitly state the limitation.\n- Return valid JSON only.`;\n\nconst userPrompt = `Repair and finalize the review report.\n\nNormalized input:\n${JSON.stringify({\n  course_id: data.course_id,\n  course_name: data.course_name,\n  student_id: data.student_id,\n  request_profile: data.request_profile,\n  time_profile: data.time_profile,\n  strategy_options: data.strategy_options,\n  evidence_coverage: data.evidence_coverage,\n  input_warnings: data.input_warnings\n}, null, 2)}\n\nDraft review report:\n${JSON.stringify(data.draft_review_report, null, 2)}\n\nCritic report:\n${JSON.stringify(data.critic_report, null, 2)}\n\nReturn this exact final JSON shape:\n{\n  \"workflow_name\": \"review_strategy_critic_agent\",\n  \"course_id\": \"${data.course_id}\",\n  \"course_name\": \"${data.course_name}\",\n  \"student_id\": \"${data.student_id}\",\n  \"report_title\": \"Evidence-Grounded Review Report\",\n  \"request_interpretation\": {\n    \"raw_request\": \"string\",\n    \"interpreted_goal\": \"score_improvement | pass_exam | quick_review | full_review | weak_point_fix | practice_oriented | unknown\",\n    \"planning_style\": \"time_boxed | priority_only | checklist | mixed\",\n    \"preferred_focus\": [\"string\"],\n    \"preferred_output\": [\"string\"],\n    \"evidence_boundary\": \"string\"\n  },\n  \"strategy_summary\": {\n    \"available_study_time_hours\": 12,\n    \"overall_strategy\": \"string\",\n    \"priority_rule\": \"string\",\n    \"time_allocation_rule\": \"string\"\n  },\n  \"prioritized_review_plan\": [],\n  \"daily_schedule\": [],\n  \"request_specific_advice\": [],\n  \"low_confidence_items\": [],\n  \"risk_controls\": [],\n  \"final_critic_summary\": {\n    \"critic_passed\": true,\n    \"overall_risk_level\": \"low | medium | high\",\n    \"issues_found\": [\"string\"],\n    \"repairs_applied\": [\"string\"],\n    \"remaining_caveats\": [\"string\"]\n  },\n  \"uncertainties\": [\"string\"],\n  \"_agent_meta\": {\n    \"agent_design\": \"demand_aware_review_strategy_with_critic_repair\",\n    \"http_llm_calls\": 3\n  }\n}\n\nThe arrays prioritized_review_plan and daily_schedule should keep the detailed item structures from the draft, repaired as needed.\nIf critic_passed is false in the critic report, include concrete repairs in final_critic_summary.repairs_applied.`;\n\nreturn [{ json: { ...data, llm_payload: { system_prompt: systemPrompt, user_prompt: userPrompt } } }];"
+      },
+      "id": "06rs0001-0000-4000-8000-000000000010",
+      "name": "Build Repair Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2560,
+        780
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.jinmaoapi.top/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{ \"Bearer \" + $env.OPENAI_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ model: \"gpt-5.5\", temperature: 0.2, messages: [ { role: \"system\", content: $json.llm_payload.system_prompt }, { role: \"user\", content: $json.llm_payload.user_prompt } ] }) }}",
+        "options": {}
+      },
+      "id": "06rs0001-0000-4000-8000-000000000011",
+      "name": "HTTP OpenAI - Repair Review Strategy",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2860,
+        780
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const previous = $(\"Build Repair Prompt\").first().json;\nconst llmResult = $input.first().json;\n\nfunction pickRawOutput(value) {\n  if (typeof value === \"string\") return value;\n  if (value?.output !== undefined) return value.output;\n  if (value?.response?.text !== undefined) return value.response.text;\n  if (value?.generations?.[0]?.[0]?.text !== undefined) return value.generations[0][0].text;\n  if (value?.choices?.[0]?.message?.content !== undefined) return value.choices[0].message.content;\n  if (value?.text !== undefined) return value.text;\n  if (value?.response !== undefined) return value.response;\n  if (value?.message?.content !== undefined) return value.message.content;\n  return value;\n}\n\nfunction stripCodeFence(text) {\n  const fence = String.fromCharCode(96).repeat(3);\n  return text.replace(new RegExp(\"^\" + fence + \"(?:json)?\\\\s*\", \"i\"), \"\").replace(new RegExp(\"\\\\s*\" + fence + \"$\", \"i\"), \"\").trim();\n}\n\nfunction parseJsonLoose(raw) {\n  if (raw && typeof raw === \"object\") raw = JSON.stringify(raw);\n  let text = stripCodeFence(String(raw ?? \"\").trim());\n  try {\n    return JSON.parse(text);\n  } catch (firstError) {\n    const start = text.indexOf(\"{\");\n    const end = text.lastIndexOf(\"}\");\n    if (start >= 0 && end > start) return JSON.parse(text.slice(start, end + 1));\n    throw firstError;\n  }\n}\n\nlet parsed;\ntry {\n  parsed = parseJsonLoose(pickRawOutput(llmResult));\n} catch (error) {\n  parsed = {\n    ...previous.draft_review_report,\n    workflow_name: \"review_strategy_critic_agent\",\n    parser_error: true,\n    error_message: error.message,\n    final_critic_summary: {\n      critic_passed: false,\n      overall_risk_level: \"high\",\n      issues_found: [\"Could not parse final repair output.\"],\n      repairs_applied: [\"Returned parsed draft report as fallback with conservative caveat.\"],\n      remaining_caveats: [\"Final repair parser failed. Inspect raw LLM output before using this report.\"]\n    },\n    _agent_meta: {\n      agent_design: \"demand_aware_review_strategy_with_critic_repair\",\n      http_llm_calls: 3,\n      parser_fallback: true\n    }\n  };\n}\n\nparsed.workflow_name = parsed.workflow_name || \"review_strategy_critic_agent\";\nparsed.course_id = parsed.course_id || previous.course_id;\nparsed.course_name = parsed.course_name || previous.course_name;\nparsed.student_id = parsed.student_id || previous.student_id;\nparsed.report_title = parsed.report_title || \"Evidence-Grounded Review Report\";\nparsed.prioritized_review_plan = Array.isArray(parsed.prioritized_review_plan) ? parsed.prioritized_review_plan : [];\nparsed.daily_schedule = Array.isArray(parsed.daily_schedule) ? parsed.daily_schedule : [];\nparsed.request_specific_advice = Array.isArray(parsed.request_specific_advice) ? parsed.request_specific_advice : [];\nparsed.low_confidence_items = Array.isArray(parsed.low_confidence_items) ? parsed.low_confidence_items : [];\nparsed.risk_controls = Array.isArray(parsed.risk_controls) ? parsed.risk_controls : [];\nparsed.uncertainties = Array.isArray(parsed.uncertainties) ? parsed.uncertainties : [];\nparsed.final_critic_summary = parsed.final_critic_summary || {\n  critic_passed: previous.critic_report?.critic_passed ?? false,\n  overall_risk_level: previous.critic_report?.overall_risk_level || \"medium\",\n  issues_found: [],\n  repairs_applied: previous.critic_report?.repair_instructions || [],\n  remaining_caveats: previous.critic_report?.remaining_caveats || []\n};\nparsed._agent_meta = parsed._agent_meta || {\n  agent_design: \"demand_aware_review_strategy_with_critic_repair\",\n  http_llm_calls: 3\n};\nparsed._agent_meta.parsed_at = new Date().toISOString();\n\nreturn [{ json: parsed }];"
+      },
+      "id": "06rs0001-0000-4000-8000-000000000012",
+      "name": "Parse Final Report JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3160,
+        780
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "06rs0001-0000-4000-8000-000000000013",
+      "name": "Respond - Evidence-Grounded Review Report",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        3460,
+        780
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook - Receive Strategy Request": {
+      "main": [
+        [
+          {
+            "node": "Normalize Strategy Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Strategy Input": {
+      "main": [
+        [
+          {
+            "node": "Build Draft Strategy Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Draft Strategy Prompt": {
+      "main": [
+        [
+          {
+            "node": "HTTP OpenAI - Draft Review Strategy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP OpenAI - Draft Review Strategy": {
+      "main": [
+        [
+          {
+            "node": "Parse Draft Strategy JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Draft Strategy JSON": {
+      "main": [
+        [
+          {
+            "node": "Build Critic Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Critic Prompt": {
+      "main": [
+        [
+          {
+            "node": "HTTP OpenAI - Strategy Critic",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP OpenAI - Strategy Critic": {
+      "main": [
+        [
+          {
+            "node": "Parse Critic Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Critic Report": {
+      "main": [
+        [
+          {
+            "node": "Build Repair Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Repair Prompt": {
+      "main": [
+        [
+          {
+            "node": "HTTP OpenAI - Repair Review Strategy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP OpenAI - Repair Review Strategy": {
+      "main": [
+        [
+          {
+            "node": "Parse Final Report JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Final Report JSON": {
+      "main": [
+        [
+          {
+            "node": "Respond - Evidence-Grounded Review Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "06rs0001-0000-4000-8000-000000000014",
+  "meta": {
+    "instanceId": "3f9be7f6047d75e769a4766192c647b7334f96d0db74013fe718e9c11646cd32"
+  },
+  "id": "reviewStrategyCriticAgentV1",
+  "tags": [
+    {
+      "updatedAt": "2026-07-04T14:00:00.000Z",
+      "createdAt": "2026-07-04T14:00:00.000Z",
+      "id": "CourseLensTag",
+      "name": "CourseLens"
+    },
+    {
+      "updatedAt": "2026-07-04T14:00:00.000Z",
+      "createdAt": "2026-07-04T14:00:00.000Z",
+      "id": "AgentWorkflowTag",
+      "name": "AgentWorkflow"
+    }
+  ]
+}

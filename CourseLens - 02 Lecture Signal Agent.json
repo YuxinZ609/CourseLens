@@ -1,0 +1,206 @@
+{
+  "name": "CourseLens - 02 Lecture Signal Agent v1 HTTP OpenAI",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "Lecture Signal Agent v1\n\nPurpose:\nExtract classroom emphasis signals from already-extracted lecture notes, transcripts, or board-writing text.\n\nCurrent scope:\n- Input is JSON with course_name, course_id, and lectures[].text.\n- The agent extracts explicit emphasis, repetition, extended explanations, examples, homework/exam links, student questions, board-writing signals, and summary markers.\n- The parser node converts the LLM output into strict JSON.\n\nImportant boundary:\nThis workflow does not predict exam questions or declare must-test content. It only reports evidence-grounded lecture signals.",
+        "height": 380,
+        "width": 480,
+        "color": 5
+      },
+      "id": "b1a82fc4-f3c1-4a62-9b5f-0cfb88d2c001",
+      "name": "Workflow Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2128,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lecture-signal-agent",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "b1a82fc4-f3c1-4a62-9b5f-0cfb88d2c002",
+      "name": "Webhook - Receive Lecture Notes",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        2640,
+        832
+      ],
+      "webhookId": "lecture-signal-agent"
+    },
+    {
+      "parameters": {
+        "jsCode": "const incoming = $input.first()?.json ?? {};\nconst body = incoming.body ?? incoming;\n\nconst courseName = body.course_name || body.courseName || \"Unknown Course\";\nconst courseId = body.course_id || body.courseId || \"course_unknown\";\n\nconst rawLectures = Array.isArray(body.lectures)\n  ? body.lectures\n  : Array.isArray(body.lecture_notes)\n    ? body.lecture_notes\n    : Array.isArray(body.transcripts)\n      ? body.transcripts\n      : Array.isArray(body.notes)\n        ? body.notes\n        : [];\n\nconst normalizedLectures = rawLectures.map((lecture, index) => ({\n  source_id: lecture.source_id || lecture.sourceId || `lec_${String(index + 1).padStart(3, \"0\")}`,\n  file_name: lecture.file_name || lecture.fileName || lecture.name || `lecture_${index + 1}`,\n  source_type: lecture.source_type || lecture.sourceType || \"lecture_transcript\",\n  lecture_title: lecture.lecture_title || lecture.lectureTitle || lecture.title || null,\n  lecture_date: lecture.lecture_date || lecture.lectureDate || lecture.date || null,\n  week: lecture.week || null,\n  segment_id: lecture.segment_id || lecture.segmentId || null,\n  start_time: lecture.start_time || lecture.startTime || null,\n  end_time: lecture.end_time || lecture.endTime || null,\n  text: lecture.text || lecture.content || lecture.transcript || lecture.note || \"\",\n  metadata: lecture.metadata || {}\n}));\n\nreturn [{\n  json: {\n    workflow_name: \"lecture_signal_agent\",\n    course_id: courseId,\n    course_name: courseName,\n    lecture_summary: {\n      total_files: normalizedLectures.length,\n      file_types: [...new Set(normalizedLectures.map(l => l.source_type))],\n      file_names: normalizedLectures.map(l => l.file_name),\n      covered_lectures: [...new Set(normalizedLectures.map(l => l.lecture_title).filter(Boolean))]\n    },\n    lectures: normalizedLectures,\n    constraints: {\n      no_exam_prediction: true,\n      no_must_test_claims: true,\n      no_review_plan: true,\n      evidence_required_for_each_signal: true\n    }\n  }\n}];"
+      },
+      "id": "b1a82fc4-f3c1-4a62-9b5f-0cfb88d2c003",
+      "name": "Normalize Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2896,
+        832
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\n\nconst lecturePreview = (data.lectures || []).map(lecture => ({\n  source_id: lecture.source_id,\n  file_name: lecture.file_name,\n  source_type: lecture.source_type,\n  lecture_title: lecture.lecture_title,\n  lecture_date: lecture.lecture_date,\n  week: lecture.week,\n  segment_id: lecture.segment_id,\n  start_time: lecture.start_time,\n  end_time: lecture.end_time,\n  metadata: lecture.metadata,\n  text: (lecture.text || \"\").slice(0, 6000)\n}));\n\nconst systemPrompt = `You are Lecture Signal Agent in CourseLens, a multi-agent course review system.\n\nYour only job is to extract classroom teaching signals from lecture notes, transcripts, board-writing notes, or teacher remarks.\n\nRules:\n1. Extract lecture signals only: explicit emphasis, repetition, extended explanation, many examples, homework links, exam links, student questions, board-writing signals, and summary markers.\n2. Every signal must include short source evidence copied from the provided lecture text.\n3. Do not predict exam questions.\n4. Do not say any concept is \"must-test\", \"guaranteed\", \"certainly examined\", or equivalent.\n5. You may say a concept has strong classroom emphasis signals when evidence supports it.\n6. Do not generate a review plan.\n7. Do not analyze student weaknesses.\n8. If evidence is weak, ambiguous, or likely affected by transcript errors, mark it as low confidence or put it in uncertainties.\n9. Return valid JSON only. Do not wrap it in Markdown. Do not add explanations outside JSON.`;\n\nconst userPrompt = `Extract a Lecture Signal Map for the course below.\n\nCourse ID: ${data.course_id}\nCourse name: ${data.course_name}\n\nLecture summary:\n${JSON.stringify(data.lecture_summary, null, 2)}\n\nLectures:\n${JSON.stringify(lecturePreview, null, 2)}\n\nReturn this exact JSON shape:\n{\n  \"workflow_name\": \"lecture_signal_agent\",\n  \"course_id\": \"${data.course_id}\",\n  \"course_name\": \"${data.course_name}\",\n  \"lecture_summary\": {\n    \"total_files\": number,\n    \"file_types\": [\"string\"],\n    \"file_names\": [\"string\"],\n    \"covered_lectures\": [\"string\"]\n  },\n  \"lecture_signals\": [\n    {\n      \"signal_id\": \"stable short id such as ls_001\",\n      \"topic_or_concept\": \"string\",\n      \"signal_type\": \"explicit_emphasis | repetition | extended_explanation | example_rich | homework_link | exam_link | student_question | board_writing | summary_marker\",\n      \"signal_strength\": \"low | medium | high\",\n      \"confidence\": 0.85,\n      \"summary\": \"string\",\n      \"source_evidence\": [\n        {\n          \"source_id\": \"string\",\n          \"file_name\": \"string\",\n          \"lecture_title\": \"string_or_null\",\n          \"location\": \"time/page/segment if available, otherwise unknown\",\n          \"evidence_text\": \"short direct evidence from the lecture text\"\n        }\n      ],\n      \"reasoning\": \"brief explanation of why this is a lecture signal\"\n    }\n  ],\n  \"signal_statistics\": {\n    \"high_signal_count\": number,\n    \"medium_signal_count\": number,\n    \"low_signal_count\": number,\n    \"signal_type_distribution\": {\n      \"explicit_emphasis\": number,\n      \"repetition\": number,\n      \"extended_explanation\": number,\n      \"example_rich\": number,\n      \"homework_link\": number,\n      \"exam_link\": number,\n      \"student_question\": number,\n      \"board_writing\": number,\n      \"summary_marker\": number\n    }\n  },\n  \"uncertainties\": [\"string\"]\n}\n\nSignal strength guidelines:\n- high: explicit teacher emphasis, repeated emphasis, or emphasis combined with homework/exam/example links.\n- medium: extended explanation, multiple examples, detailed student Q&A, or appearance in summaries.\n- low: ordinary mention, weak cue, ambiguous wording, or possible transcript noise.\n\nQuality requirements:\n- Use source_id and file_name exactly as given.\n- Keep evidence_text short.\n- Confidence must be between 0 and 1.\n- If there are no meaningful lecture signals, return an empty lecture_signals array and explain why in uncertainties.\n- Do not include must-test, guaranteed, or prediction language.`;\n\nreturn [{\n  json: {\n    ...data,\n    llm_payload: {\n      system_prompt: systemPrompt,\n      user_prompt: userPrompt\n    }\n  }\n}];"
+      },
+      "id": "b1a82fc4-f3c1-4a62-9b5f-0cfb88d2c004",
+      "name": "Build LLM Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3168,
+        832
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.jinmaoapi.top/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{ \"Bearer \" + $env.OPENAI_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ model: \"gpt-5.5\", temperature: 0.2, messages: [ { role: \"system\", content: $json.llm_payload.system_prompt }, { role: \"user\", content: $json.llm_payload.user_prompt } ] }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3440,
+        832
+      ],
+      "id": "b1a82fc4-f3c1-4a62-9b5f-0cfb88d2c005",
+      "name": "HTTP OpenAI - Extract Lecture Signals"
+    },
+    {
+      "parameters": {
+        "jsCode": "const llmResult = $input.first().json;\n\nfunction pickRawOutput(value) {\n  if (typeof value === \"string\") return value;\n  if (value?.output !== undefined) return value.output;\n  if (value?.response?.text !== undefined) return value.response.text;\n  if (value?.generations?.[0]?.[0]?.text !== undefined) return value.generations[0][0].text;\n  if (value?.choices?.[0]?.message?.content !== undefined) return value.choices[0].message.content;\n  if (value?.text !== undefined) return value.text;\n  if (value?.response !== undefined) return value.response;\n  if (value?.message?.content !== undefined) return value.message.content;\n  return value;\n}\n\nfunction stripCodeFence(text) {\n  return text\n    .replace(/^```(?:json)?\\s*/i, \"\")\n    .replace(/\\s*```$/i, \"\")\n    .trim();\n}\n\nfunction parseJsonLoose(raw) {\n  if (raw && typeof raw === \"object\") {\n    if (raw.workflow_name || raw.lecture_signals) return raw;\n    raw = JSON.stringify(raw);\n  }\n\n  let text = String(raw ?? \"\").trim();\n  text = stripCodeFence(text);\n\n  try {\n    return JSON.parse(text);\n  } catch (firstError) {\n    const start = text.indexOf(\"{\");\n    const end = text.lastIndexOf(\"}\");\n    if (start >= 0 && end > start) {\n      const candidate = text.slice(start, end + 1);\n      return JSON.parse(candidate);\n    }\n    throw firstError;\n  }\n}\n\nlet parsed;\ntry {\n  parsed = parseJsonLoose(pickRawOutput(llmResult));\n} catch (error) {\n  return [{\n    json: {\n      workflow_name: \"lecture_signal_agent\",\n      parser_error: true,\n      error_message: error.message,\n      raw_llm_output: llmResult\n    }\n  }];\n}\n\nparsed.workflow_name = parsed.workflow_name || \"lecture_signal_agent\";\nparsed.lecture_summary = parsed.lecture_summary || {};\nparsed.lecture_signals = Array.isArray(parsed.lecture_signals) ? parsed.lecture_signals : [];\nparsed.signal_statistics = parsed.signal_statistics || {};\nparsed.uncertainties = Array.isArray(parsed.uncertainties) ? parsed.uncertainties : [];\nparsed._agent_meta = {\n  parsed_at: new Date().toISOString(),\n  node: \"Parse OpenAI JSON\"\n};\n\nreturn [{ json: parsed }];"
+      },
+      "id": "b1a82fc4-f3c1-4a62-9b5f-0cfb88d2c006",
+      "name": "Parse OpenAI JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3792,
+        832
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "b1a82fc4-f3c1-4a62-9b5f-0cfb88d2c007",
+      "name": "Respond - Lecture Signal Map",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        4048,
+        832
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook - Receive Lecture Notes": {
+      "main": [
+        [
+          {
+            "node": "Normalize Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Input": {
+      "main": [
+        [
+          {
+            "node": "Build LLM Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build LLM Prompt": {
+      "main": [
+        [
+          {
+            "node": "HTTP OpenAI - Extract Lecture Signals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP OpenAI - Extract Lecture Signals": {
+      "main": [
+        [
+          {
+            "node": "Parse OpenAI JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse OpenAI JSON": {
+      "main": [
+        [
+          {
+            "node": "Respond - Lecture Signal Map",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "b1a82fc4-f3c1-4a62-9b5f-0cfb88d2c008",
+  "meta": {
+    "instanceId": "3f9be7f6047d75e769a4766192c647b7334f96d0db74013fe718e9c11646cd32"
+  },
+  "id": "lectureSignalAgentV1",
+  "tags": [
+    {
+      "updatedAt": "2026-07-04T10:30:00.000Z",
+      "createdAt": "2026-07-04T10:30:00.000Z",
+      "id": "CourseLensTag",
+      "name": "CourseLens"
+    },
+    {
+      "updatedAt": "2026-07-04T10:30:00.000Z",
+      "createdAt": "2026-07-04T10:30:00.000Z",
+      "id": "AgentWorkflowTag",
+      "name": "AgentWorkflow"
+    }
+  ]
+}

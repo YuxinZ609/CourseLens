@@ -1,0 +1,206 @@
+{
+  "name": "CourseLens - 03 Exam Pattern Agent v1 HTTP OpenAI",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "Exam Pattern Agent v1\n\nPurpose:\nExtract historical question patterns and ability requirements from already-extracted past exams, mock exams, exercises, or structured question lists.\n\nCurrent scope:\n- Input can be JSON with exam_sets[], past_exams[], or questions[].\n- The agent analyzes question types, knowledge points, ability requirements, difficulty estimates, and source evidence.\n- The parser node converts the LLM output into strict JSON.\n\nImportant boundary:\nThis workflow does not predict future exam questions, declare must-test content, or generate a review plan. It only reports evidence-grounded patterns from the provided historical/question materials.",
+        "height": 400,
+        "width": 500,
+        "color": 6
+      },
+      "id": "c3f16a9d-4a62-4f9a-b7b2-0a9e2f03c001",
+      "name": "Workflow Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2128,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "exam-pattern-agent",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "c3f16a9d-4a62-4f9a-b7b2-0a9e2f03c002",
+      "name": "Webhook - Receive Exam Materials",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        2640,
+        832
+      ],
+      "webhookId": "exam-pattern-agent"
+    },
+    {
+      "parameters": {
+        "jsCode": "const incoming = $input.first()?.json ?? {};\nconst body = incoming.body ?? incoming;\n\nconst courseName = body.course_name || body.courseName || \"Unknown Course\";\nconst courseId = body.course_id || body.courseId || \"course_unknown\";\n\nconst rawExamSets = [\n  ...(Array.isArray(body.exam_sets) ? body.exam_sets : []),\n  ...(Array.isArray(body.past_exams) ? body.past_exams : []),\n  ...(Array.isArray(body.examSets) ? body.examSets : []),\n  ...(Array.isArray(body.pastExams) ? body.pastExams : [])\n];\n\nconst rawQuestions = [\n  ...(Array.isArray(body.questions) ? body.questions : []),\n  ...(Array.isArray(body.exam_questions) ? body.exam_questions : []),\n  ...(Array.isArray(body.examQuestions) ? body.examQuestions : [])\n];\n\nlet examItems = [];\n\nif (rawQuestions.length > 0) {\n  examItems = rawQuestions.map((question, index) => ({\n    item_id: question.question_id || question.questionId || question.item_id || question.itemId || `q_${String(index + 1).padStart(3, \"0\")}`,\n    source_id: question.source_id || question.sourceId || `exam_source_${String(index + 1).padStart(3, \"0\")}`,\n    file_name: question.file_name || question.fileName || question.name || null,\n    source_type: question.source_type || question.sourceType || \"question\",\n    exam_year: question.exam_year || question.examYear || question.year || null,\n    exam_name: question.exam_name || question.examName || question.title || null,\n    question_type_hint: question.question_type || question.questionType || question.type || null,\n    points: question.points || question.score || null,\n    text: question.text || question.content || question.question || \"\",\n    metadata: question.metadata || {}\n  }));\n} else {\n  examItems = rawExamSets.map((exam, index) => ({\n    item_id: exam.item_id || exam.itemId || exam.source_id || exam.sourceId || `exam_${String(index + 1).padStart(3, \"0\")}`,\n    source_id: exam.source_id || exam.sourceId || `exam_${String(index + 1).padStart(3, \"0\")}`,\n    file_name: exam.file_name || exam.fileName || exam.name || `exam_material_${index + 1}`,\n    source_type: exam.source_type || exam.sourceType || \"past_exam\",\n    exam_year: exam.exam_year || exam.examYear || exam.year || null,\n    exam_name: exam.exam_name || exam.examName || exam.title || null,\n    question_type_hint: exam.question_type || exam.questionType || null,\n    points: exam.points || exam.score || null,\n    text: exam.text || exam.content || \"\",\n    metadata: exam.metadata || {}\n  }));\n}\n\nconst sourceTypes = [...new Set(examItems.map(item => item.source_type).filter(Boolean))];\nconst fileNames = [...new Set(examItems.map(item => item.file_name).filter(Boolean))];\nconst examYears = [...new Set(examItems.map(item => item.exam_year).filter(year => year !== null && year !== undefined))];\n\nreturn [{\n  json: {\n    workflow_name: \"exam_pattern_agent\",\n    course_id: courseId,\n    course_name: courseName,\n    exam_summary: {\n      total_sources: examItems.length,\n      source_types: sourceTypes,\n      file_names: fileNames,\n      exam_years: examYears\n    },\n    exam_items: examItems,\n    constraints: {\n      no_exam_prediction: true,\n      no_must_test_claims: true,\n      no_review_plan: true,\n      evidence_required_for_each_pattern: true\n    }\n  }\n}];"
+      },
+      "id": "c3f16a9d-4a62-4f9a-b7b2-0a9e2f03c003",
+      "name": "Normalize Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2896,
+        832
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\n\nconst examPreview = (data.exam_items || []).map(item => ({\n  item_id: item.item_id,\n  source_id: item.source_id,\n  file_name: item.file_name,\n  source_type: item.source_type,\n  exam_year: item.exam_year,\n  exam_name: item.exam_name,\n  question_type_hint: item.question_type_hint,\n  points: item.points,\n  metadata: item.metadata,\n  text: (item.text || \"\").slice(0, 6000)\n}));\n\nconst systemPrompt = `You are Exam Pattern Agent in CourseLens, a multi-agent course review system.\n\nYour only job is to analyze historical exam/question materials and extract evidence-grounded question patterns and ability requirements.\n\nRules:\n1. Analyze only the provided past exams, mock exams, exercises, or question texts.\n2. Extract question types, knowledge points, ability requirements, difficulty estimates, and historical patterns.\n3. Every question analysis must include evidence from the provided question text.\n4. Every pattern summary must be supported by question IDs or source evidence.\n5. Do not predict future exam questions.\n6. Do not say any topic is \"must-test\", \"guaranteed\", \"certainly examined\", \"likely to appear this year\", or equivalent.\n7. You may say a topic appears frequently in the provided historical/question materials when evidence supports it.\n8. Do not generate a review plan.\n9. Do not analyze student weaknesses.\n10. If evidence is weak, ambiguous, or too little to infer a pattern, mark it in uncertainties.\n11. Return valid JSON only. Do not wrap it in Markdown. Do not add explanations outside JSON.`;\n\nconst userPrompt = `Extract an Exam Pattern Map for the course below.\n\nCourse ID: ${data.course_id}\nCourse name: ${data.course_name}\n\nExam summary:\n${JSON.stringify(data.exam_summary, null, 2)}\n\nExam items:\n${JSON.stringify(examPreview, null, 2)}\n\nReturn this exact JSON shape:\n{\n  \"workflow_name\": \"exam_pattern_agent\",\n  \"course_id\": \"${data.course_id}\",\n  \"course_name\": \"${data.course_name}\",\n  \"exam_summary\": {\n    \"total_sources\": number,\n    \"source_types\": [\"string\"],\n    \"file_names\": [\"string\"],\n    \"exam_years\": [number]\n  },\n  \"question_analysis\": [\n    {\n      \"question_id\": \"string\",\n      \"source_id\": \"string\",\n      \"file_name\": \"string_or_null\",\n      \"exam_year\": number_or_null,\n      \"detected_question_type\": \"multiple_choice | true_false | fill_blank | short_answer | calculation | proof | programming | case_analysis | essay | other\",\n      \"points\": number_or_null,\n      \"knowledge_points\": [\"string\"],\n      \"ability_requirements\": [\"memory | understanding | comparison | calculation | derivation | application | analysis | design | implementation | interpretation\"],\n      \"difficulty_estimate\": \"low | medium | high\",\n      \"evidence_text\": \"short direct evidence from the question text\",\n      \"reasoning\": \"brief explanation of the type and ability judgment\"\n    }\n  ],\n  \"pattern_summary\": [\n    {\n      \"pattern_id\": \"stable short id such as ep_001\",\n      \"knowledge_point\": \"string\",\n      \"frequency_level\": \"low | medium | high\",\n      \"question_types\": [\"multiple_choice | true_false | fill_blank | short_answer | calculation | proof | programming | case_analysis | essay | other\"],\n      \"ability_requirements\": [\"memory | understanding | comparison | calculation | derivation | application | analysis | design | implementation | interpretation\"],\n      \"supporting_questions\": [\"question_id\"],\n      \"source_evidence\": [\n        {\n          \"source_id\": \"string\",\n          \"file_name\": \"string_or_null\",\n          \"exam_year\": number_or_null,\n          \"evidence_text\": \"short direct evidence from the question text\"\n        }\n      ],\n      \"confidence\": 0.85,\n      \"summary\": \"string\"\n    }\n  ],\n  \"question_type_distribution\": {\n    \"multiple_choice\": number,\n    \"true_false\": number,\n    \"fill_blank\": number,\n    \"short_answer\": number,\n    \"calculation\": number,\n    \"proof\": number,\n    \"programming\": number,\n    \"case_analysis\": number,\n    \"essay\": number,\n    \"other\": number\n  },\n  \"ability_distribution\": {\n    \"memory\": number,\n    \"understanding\": number,\n    \"comparison\": number,\n    \"calculation\": number,\n    \"derivation\": number,\n    \"application\": number,\n    \"analysis\": number,\n    \"design\": number,\n    \"implementation\": number,\n    \"interpretation\": number\n  },\n  \"uncertainties\": [\"string\"]\n}\n\nFrequency guidelines:\n- high: the same knowledge point appears in multiple sources/questions, occupies substantial question space, or appears across multiple question types.\n- medium: the knowledge point appears more than once, or appears once with high points/complex ability requirements.\n- low: the knowledge point appears only once, briefly, or with weak evidence.\n\nQuality requirements:\n- Use item_id from input as question_id when available.\n- Use source_id and file_name exactly as given.\n- Keep evidence_text short.\n- Confidence must be between 0 and 1.\n- If input contains whole exam text rather than split questions, analyze visible questions as well as possible and mention segmentation uncertainty.\n- Do not include must-test, guaranteed, prediction, or this-year language.`;\n\nreturn [{\n  json: {\n    ...data,\n    llm_payload: {\n      system_prompt: systemPrompt,\n      user_prompt: userPrompt\n    }\n  }\n}];"
+      },
+      "id": "c3f16a9d-4a62-4f9a-b7b2-0a9e2f03c004",
+      "name": "Build LLM Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3168,
+        832
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.jinmaoapi.top/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{ \"Bearer \" + $env.OPENAI_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ model: \"gpt-5.5\", temperature: 0.2, messages: [ { role: \"system\", content: $json.llm_payload.system_prompt }, { role: \"user\", content: $json.llm_payload.user_prompt } ] }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3440,
+        832
+      ],
+      "id": "c3f16a9d-4a62-4f9a-b7b2-0a9e2f03c005",
+      "name": "HTTP OpenAI - Extract Exam Patterns"
+    },
+    {
+      "parameters": {
+        "jsCode": "const llmResult = $input.first().json;\n\nfunction pickRawOutput(value) {\n  if (typeof value === \"string\") return value;\n  if (value?.output !== undefined) return value.output;\n  if (value?.response?.text !== undefined) return value.response.text;\n  if (value?.generations?.[0]?.[0]?.text !== undefined) return value.generations[0][0].text;\n  if (value?.choices?.[0]?.message?.content !== undefined) return value.choices[0].message.content;\n  if (value?.text !== undefined) return value.text;\n  if (value?.response !== undefined) return value.response;\n  if (value?.message?.content !== undefined) return value.message.content;\n  return value;\n}\n\nfunction stripCodeFence(text) {\n  return text\n    .replace(/^```(?:json)?\\s*/i, \"\")\n    .replace(/\\s*```$/i, \"\")\n    .trim();\n}\n\nfunction parseJsonLoose(raw) {\n  if (raw && typeof raw === \"object\") {\n    if (raw.workflow_name || raw.question_analysis || raw.pattern_summary) return raw;\n    raw = JSON.stringify(raw);\n  }\n\n  let text = String(raw ?? \"\").trim();\n  text = stripCodeFence(text);\n\n  try {\n    return JSON.parse(text);\n  } catch (firstError) {\n    const start = text.indexOf(\"{\");\n    const end = text.lastIndexOf(\"}\");\n    if (start >= 0 && end > start) {\n      const candidate = text.slice(start, end + 1);\n      return JSON.parse(candidate);\n    }\n    throw firstError;\n  }\n}\n\nlet parsed;\ntry {\n  parsed = parseJsonLoose(pickRawOutput(llmResult));\n} catch (error) {\n  return [{\n    json: {\n      workflow_name: \"exam_pattern_agent\",\n      parser_error: true,\n      error_message: error.message,\n      raw_llm_output: llmResult\n    }\n  }];\n}\n\nparsed.workflow_name = parsed.workflow_name || \"exam_pattern_agent\";\nparsed.exam_summary = parsed.exam_summary || {};\nparsed.question_analysis = Array.isArray(parsed.question_analysis) ? parsed.question_analysis : [];\nparsed.pattern_summary = Array.isArray(parsed.pattern_summary) ? parsed.pattern_summary : [];\nparsed.question_type_distribution = parsed.question_type_distribution || {};\nparsed.ability_distribution = parsed.ability_distribution || {};\nparsed.uncertainties = Array.isArray(parsed.uncertainties) ? parsed.uncertainties : [];\nparsed._agent_meta = {\n  parsed_at: new Date().toISOString(),\n  node: \"Parse OpenAI JSON\"\n};\n\nreturn [{ json: parsed }];"
+      },
+      "id": "c3f16a9d-4a62-4f9a-b7b2-0a9e2f03c006",
+      "name": "Parse OpenAI JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3792,
+        832
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "c3f16a9d-4a62-4f9a-b7b2-0a9e2f03c007",
+      "name": "Respond - Exam Pattern Map",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        4048,
+        832
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook - Receive Exam Materials": {
+      "main": [
+        [
+          {
+            "node": "Normalize Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Input": {
+      "main": [
+        [
+          {
+            "node": "Build LLM Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build LLM Prompt": {
+      "main": [
+        [
+          {
+            "node": "HTTP OpenAI - Extract Exam Patterns",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP OpenAI - Extract Exam Patterns": {
+      "main": [
+        [
+          {
+            "node": "Parse OpenAI JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse OpenAI JSON": {
+      "main": [
+        [
+          {
+            "node": "Respond - Exam Pattern Map",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "c3f16a9d-4a62-4f9a-b7b2-0a9e2f03c008",
+  "meta": {
+    "instanceId": "3f9be7f6047d75e769a4766192c647b7334f96d0db74013fe718e9c11646cd32"
+  },
+  "id": "examPatternAgentV1",
+  "tags": [
+    {
+      "updatedAt": "2026-07-04T11:30:00.000Z",
+      "createdAt": "2026-07-04T11:30:00.000Z",
+      "id": "CourseLensTag",
+      "name": "CourseLens"
+    },
+    {
+      "updatedAt": "2026-07-04T11:30:00.000Z",
+      "createdAt": "2026-07-04T11:30:00.000Z",
+      "id": "AgentWorkflowTag",
+      "name": "AgentWorkflow"
+    }
+  ]
+}
