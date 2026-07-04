@@ -1,0 +1,359 @@
+[
+  {
+    "page": 17,
+    "color": "yellow_skip",
+    "meaning": "not_required_or_low_priority",
+    "nearby_section": "差分",
+    "text": "2.0.23\n差分"
+  },
+  {
+    "page": 18,
+    "color": "yellow_skip",
+    "meaning": "not_required_or_low_priority",
+    "nearby_section": "第三节 Hermite 插值",
+    "text": "2.0.24\n等距节点的差分与差商"
+  },
+  {
+    "page": 18,
+    "color": "yellow_skip",
+    "meaning": "not_required_or_low_priority",
+    "nearby_section": "第三节 Hermite 插值",
+    "text": "2.0.25\n等距节点牛顿前插公式"
+  },
+  {
+    "page": 18,
+    "color": "yellow_skip",
+    "meaning": "not_required_or_low_priority",
+    "nearby_section": "第三节 Hermite 插值",
+    "text": "2.0.26\n等距节点牛顿后插公式"
+  },
+  {
+    "page": 18,
+    "color": "yellow_skip",
+    "meaning": "not_required_or_low_priority",
+    "nearby_section": "第三节 Hermite 插值",
+    "text": "2.0.27\n等距插值示例"
+  },
+  {
+    "page": 19,
+    "color": "yellow_skip",
+    "meaning": "not_required_or_low_priority",
+    "nearby_section": "Hermite 插值计算示例",
+    "text": "2.0.31\nHermite 插值基函数（二）"
+  },
+  {
+    "page": 19,
+    "color": "yellow_skip",
+    "meaning": "not_required_or_low_priority",
+    "nearby_section": "Hermite 插值计算示例",
+    "text": "2.0.32\nHermite 插值余项"
+  },
+  {
+    "page": 19,
+    "color": "yellow_skip",
+    "meaning": "not_required_or_low_priority",
+    "nearby_section": "Hermite 插值计算示例",
+    "text": "2.0.33\nHermite 插值计算示例"
+  },
+  {
+    "page": 20,
+    "color": "yellow_skip",
+    "meaning": "not_required_or_low_priority",
+    "nearby_section": "Runge 现象",
+    "text": "2.0.34\n三次Hermite 插值示例"
+  },
+  {
+    "page": 20,
+    "color": "yellow_skip",
+    "meaning": "not_required_or_low_priority",
+    "nearby_section": "Runge 现象",
+    "text": "2.0.35\nHermite 插值误差"
+  },
+  {
+    "page": 20,
+    "color": "pink_important",
+    "meaning": "very_important_teacher_emphasis",
+    "nearby_section": "Runge 现象",
+    "text": "2.0.38\nRunge 现象"
+  },
+  {
+    "page": 22,
+    "color": "pink_important",
+    "meaning": "very_important_teacher_emphasis",
+    "nearby_section": "三次样条的收敛性与误差",
+    "text": "2.0.44\n三次样条函数"
+  },
+  {
+    "page": 22,
+    "color": "yellow_skip",
+    "meaning": "not_required_or_low_priority",
+    "nearby_section": "三次样条的收敛性与误差",
+    "text": "2.0.45\n三次样条的计算（一阶导数条件）"
+  },
+  {
+    "page": 22,
+    "color": "yellow_skip",
+    "meaning": "not_required_or_low_priority",
+    "nearby_section": "三次样条的收敛性与误差",
+    "text": "2.0.46\n三次样条的计算（二阶导数条件）"
+  },
+  {
+    "page": 28,
+    "color": "pink_important",
+    "meaning": "very_important_teacher_emphasis",
+    "nearby_section": "Legendre 多项式性质 II",
+    "text": "3.0.16\n正交多项式三项递推"
+  },
+  {
+    "page": 32,
+    "color": "pink_important",
+    "meaning": "very_important_teacher_emphasis",
+    "nearby_section": "从三角插值到 DFT",
+    "text": "3.0.33\n三角插值与三角逼近的联系"
+  },
+  {
+    "page": 32,
+    "color": "pink_important",
+    "meaning": "very_important_teacher_emphasis",
+    "nearby_section": "从三角插值到 DFT",
+    "text": "定理3.0.36 (DFT 基本公式)."
+  },
+  {
+    "page": 33,
+    "color": "pink_important",
+    "meaning": "very_important_teacher_emphasis",
+    "nearby_section": "复杂度与算法结构",
+    "text": "3.0.39\n复杂度与算法结构"
+  },
+  {
+    "page": 34,
+    "color": "yellow_skip",
+    "meaning": "not_required_or_low_priority",
+    "nearby_section": "小结",
+    "text": "3.0.41\nFFT 的数值计算应用"
+  },
+  {
+    "page": 35,
+    "color": "pink_important",
+    "meaning": "very_important_teacher_emphasis",
+    "nearby_section": "插值型数值积分",
+    "text": "与代数精度"
+  },
+  {
+    "page": 38,
+    "color": "yellow_skip",
+    "meaning": "not_required_or_low_priority",
+    "nearby_section": "Romberg 方法",
+    "text": "4.0.15\n复合Cotes 公式"
+  },
+  {
+    "page": 38,
+    "color": "pink_important",
+    "meaning": "very_important_teacher_emphasis",
+    "nearby_section": "Romberg 方法",
+    "text": "第三节Romberg 方法与Richardson 外推"
+  },
+  {
+    "page": 39,
+    "color": "yellow_skip",
+    "meaning": "not_required_or_low_priority",
+    "nearby_section": "Romberg 算法",
+    "text": "4.0.22\nRomberg 算法"
+  },
+  {
+    "page": 40,
+    "color": "yellow_skip",
+    "meaning": "not_required_or_low_priority",
+    "nearby_section": "Euler-Maclaurin 公式的证明（3）",
+    "text": "4.0.23\nEuler-Maclaurin 公式"
+  },
+  {
+    "page": 44,
+    "color": "yellow_skip",
+    "meaning": "not_required_or_low_priority",
+    "nearby_section": "定理 5.8 的证明",
+    "text": "4.0.42\nGauss 公式的收敛性"
+  },
+  {
+    "page": 50,
+    "color": "yellow_skip",
+    "meaning": "not_required_or_low_priority",
+    "nearby_section": "稳定性",
+    "text": "收敛性与单步方法"
+  },
+  {
+    "page": 52,
+    "color": "yellow_skip",
+    "meaning": "not_required_or_low_priority",
+    "nearby_section": "Adams 显式方法",
+    "text": "5.0.23\n第四节线性多步方法"
+  },
+  {
+    "page": 55,
+    "color": "pink_important",
+    "meaning": "very_important_teacher_emphasis",
+    "nearby_section": "蒙特卡洛方法的引入",
+    "text": "传统数值积分的困境"
+  },
+  {
+    "page": 55,
+    "color": "pink_important",
+    "meaning": "very_important_teacher_emphasis",
+    "nearby_section": "蒙特卡洛方法的引入",
+    "text": "即维度灾难"
+  },
+  {
+    "page": 55,
+    "color": "pink_important",
+    "meaning": "very_important_teacher_emphasis",
+    "nearby_section": "蒙特卡洛方法的引入",
+    "text": "X1, . . . , XM\ni.i.d.\n∼U(Ω)"
+  },
+  {
+    "page": 56,
+    "color": "pink_important",
+    "meaning": "very_important_teacher_emphasis",
+    "nearby_section": "收敛性：大数定律（证明）",
+    "text": "无偏性与方差"
+  },
+  {
+    "page": 56,
+    "color": "pink_important",
+    "meaning": "very_important_teacher_emphasis",
+    "nearby_section": "收敛性：大数定律（证明）",
+    "text": "无偏性与方差"
+  },
+  {
+    "page": 57,
+    "color": "pink_important",
+    "meaning": "very_important_teacher_emphasis",
+    "nearby_section": "半阶收敛率",
+    "text": "半阶收敛率"
+  },
+  {
+    "page": 58,
+    "color": "pink_important",
+    "meaning": "very_important_teacher_emphasis",
+    "nearby_section": "控制变量法",
+    "text": "第二节减少方差的方法"
+  },
+  {
+    "page": 59,
+    "color": "pink_important",
+    "meaning": "very_important_teacher_emphasis",
+    "nearby_section": "分层抽样：方差分析（证明）",
+    "text": "分层抽样"
+  },
+  {
+    "page": 62,
+    "color": "yellow_skip",
+    "meaning": "not_required_or_low_priority",
+    "nearby_section": "拟蒙特卡洛 (QMC)",
+    "text": "第四节拓展与应用"
+  },
+  {
+    "page": 71,
+    "color": "pink_important",
+    "meaning": "very_important_teacher_emphasis",
+    "nearby_section": "2.2 一阶条件与二阶条件",
+    "text": "一阶条件与二阶条件"
+  },
+  {
+    "page": 72,
+    "color": "pink_important",
+    "meaning": "very_important_teacher_emphasis",
+    "nearby_section": "2.4 常见凸函数",
+    "text": "一阶条件的证明"
+  },
+  {
+    "page": 74,
+    "color": "yellow_skip",
+    "meaning": "not_required_or_low_priority",
+    "nearby_section": "2.7 拟凸函数",
+    "text": "拟凸函数"
+  },
+  {
+    "page": 76,
+    "color": "pink_important",
+    "meaning": "very_important_teacher_emphasis",
+    "nearby_section": "3.2 凸优化 vs 非凸优化",
+    "text": "局部最优即全局最优（需要严格证明给学生看）："
+  },
+  {
+    "page": 80,
+    "color": "pink_important",
+    "meaning": "very_important_teacher_emphasis",
+    "nearby_section": "4.2 对偶函数的基本性质",
+    "text": "Lagrange 函数"
+  },
+  {
+    "page": 80,
+    "color": "pink_important",
+    "meaning": "very_important_teacher_emphasis",
+    "nearby_section": "4.2 对偶函数的基本性质",
+    "text": "Lagrange 对偶函数"
+  },
+  {
+    "page": 80,
+    "color": "pink_important",
+    "meaning": "very_important_teacher_emphasis",
+    "nearby_section": "4.2 对偶函数的基本性质",
+    "text": "4.2 对偶函数的基本性质"
+  },
+  {
+    "page": 82,
+    "color": "pink_important",
+    "meaning": "very_important_teacher_emphasis",
+    "nearby_section": "4.6 KKT 条件",
+    "text": "四条KKT 条件"
+  },
+  {
+    "page": 84,
+    "color": "pink_important",
+    "meaning": "very_important_teacher_emphasis",
+    "nearby_section": "5.2 梯度下降的收敛性分析",
+    "text": "5.1 梯度下降法"
+  },
+  {
+    "page": 85,
+    "color": "pink_important",
+    "meaning": "very_important_teacher_emphasis",
+    "nearby_section": "5.3 梯度下降 O(1/k) 收敛性证明",
+    "text": "2k\n**µ-强凸情形**：f(x(k)) −p∗≤\n�\n1 −µ\nL\n�k\n· L\n2 ∥x(0) −x∗∥2\n2\n条件数κ = L/µ 决定收敛速度。κ 大（函数” 病态”）时收敛"
+  },
+  {
+    "page": 86,
+    "color": "pink_important",
+    "meaning": "very_important_teacher_emphasis",
+    "nearby_section": "5.4 最速下降法",
+    "text": "最速下降法"
+  },
+  {
+    "page": 87,
+    "color": "pink_important",
+    "meaning": "very_important_teacher_emphasis",
+    "nearby_section": "5.5 Newton 方法",
+    "text": "Newton 方法"
+  },
+  {
+    "page": 87,
+    "color": "pink_important",
+    "meaning": "very_important_teacher_emphasis",
+    "nearby_section": "5.5 Newton 方法",
+    "text": "计算Newton 减量：λ2 := −∇f(x(k))T∆xnt = ∆xT\nnt∇2f(x(k))∆xnt"
+  },
+  {
+    "page": 89,
+    "color": "pink_important",
+    "meaning": "very_important_teacher_emphasis",
+    "nearby_section": "6.2 等式约束 Newton 方法",
+    "text": "等式约束Newton 方法"
+  },
+  {
+    "page": 89,
+    "color": "pink_important",
+    "meaning": "very_important_teacher_emphasis",
+    "nearby_section": "6.2 等式约束 Newton 方法",
+    "text": "KKT 条件"
+  }
+]

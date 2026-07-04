@@ -1,0 +1,751 @@
+{
+  "workflow_name": "courselens_orchestrator",
+  "course_id": "numerical_analysis_demo",
+  "course_name": "数值分析",
+  "student_id": "demo_student",
+  "status": "completed_with_manual_repair_fallback",
+  "routing_summary": {
+    "called_agents": [
+      "course_material_agent",
+      "lecture_signal_agent",
+      "exam_pattern_agent",
+      "student_profile_agent",
+      "evidence_fusion_agent",
+      "review_strategy_critic_agent"
+    ],
+    "skipped_agents": [],
+    "upstream_status": [
+      {
+        "agent_name": "course_material_agent",
+        "status": "available",
+        "reason": "Upstream workflow returned a response."
+      },
+      {
+        "agent_name": "lecture_signal_agent",
+        "status": "available",
+        "reason": "Upstream workflow returned a response."
+      },
+      {
+        "agent_name": "exam_pattern_agent",
+        "status": "available",
+        "reason": "Upstream workflow returned a response."
+      },
+      {
+        "agent_name": "student_profile_agent",
+        "status": "available",
+        "reason": "Upstream workflow returned a response."
+      }
+    ]
+  },
+  "evidence_coverage": {
+    "has_course_materials": true,
+    "has_lecture_signals": true,
+    "has_exam_patterns": true,
+    "has_student_profile": true
+  },
+  "final_report": {
+    "workflow_name": "review_strategy_critic_agent",
+    "course_id": "numerical_analysis_demo",
+    "course_name": "数值分析",
+    "student_id": "demo_student",
+    "report_title": "Evidence-Grounded Review Report",
+    "request_interpretation": {
+      "raw_request": "我在准备数值分析课程复习，假定还有2天时间，每天可复习6小时。希望根据总讲义、老师用颜色标出的重点/不用看内容，以及同一老师相似课程的往年题，帮我判断复习优先级并制定两天复习计划。注意相似课程往年题只能作为弱证据，不能当成本课程考试预测。",
+      "interpreted_goal": "quick_review",
+      "planning_style": "time_boxed",
+      "preferred_focus": [],
+      "preferred_output": [
+        "daily_schedule",
+        "priority_focus"
+      ],
+      "evidence_boundary": "本报告只用于制定复习优先级与两天时间分配，不进行考试预测；相似课程历史题目只作为弱证据或相关性线索，不能推出本课程后续考查内容、形式或结果。"
+    },
+    "strategy_summary": {
+      "available_study_time_hours": 12,
+      "overall_strategy": "在12小时高时间压力下，优先覆盖课堂强调与历史模式有交叉支持的主题；先复习可形成公式、步骤、证明框架和典型计算流程的高优先内容，再用中等优先主题补齐常见计算链条。由于缺少个人错题和掌握度信息，策略保持保守，不把任何主题视为确定性目标。",
+      "priority_rule": "优先级主要依据课堂强调、历史模式相关性、能力覆盖广度和时间约束；有课堂与历史交叉证据的主题排在前面，只有历史模式或课堂单侧支持的主题降低排序。",
+      "time_allocation_rule": "12小时中约8小时用于4个高优先主题，约3小时用于中等优先主题联动复习，约1小时用于总复盘与自测纠错；每个主题都要求产出可检查的公式表、步骤清单或短题演练结果。"
+    },
+    "prioritized_review_plan": [
+      {
+        "rank": 1,
+        "focus_id": "rf_001",
+        "topic_or_concept": "插值、差商、Newton 插值、样条与 Runge 现象",
+        "priority": "high",
+        "recommended_time_hours": 2,
+        "why_this_matters": "该主题同时有较强课堂强调和历史模式相关性，覆盖概念解释、构造计算、证明与性质辨析，适合在有限时间内作为第一轮核心复习对象。",
+        "learning_goal": "能够解释 Runge 现象，写出差商与 Newton 插值构造流程，掌握样条基本性质和边界条件，并完成一到两道综合计算或证明题。",
+        "practice_actions": [
+          "整理差商表、Newton 插值公式和误差项的使用条件",
+          "手算一道 Newton 插值构造题，检查差商递推是否正确",
+          "对比 Lagrange、Newton 和样条插值的适用场景与性质",
+          "用简短文字解释 Runge 现象及其复习意义"
+        ],
+        "success_check": [
+          "不看资料能写出差商定义和 Newton 插值递推形式",
+          "能根据给定节点完成插值多项式构造",
+          "能说明样条边界条件的含义",
+          "能用非预测性语言区分历史相关性和本次复习重点"
+        ],
+        "evidence_basis": {
+          "priority_score": 0.94,
+          "evidence_confidence": 0.9,
+          "source_basis": [
+            "lecture_signal_agent",
+            "exam_pattern_agent",
+            "student_profile_agent"
+          ],
+          "evidence_chain": [
+            "lecturesignal_001",
+            "lecturesignal_002",
+            "exampattern_002",
+            "exampattern_010",
+            "exampattern_012",
+            "exampattern_018",
+            "studentprofile_001",
+            "studentprofile_004"
+          ],
+          "caveats": [
+            "历史考试模式只表示既有相关性，不构成后续考查判断。",
+            "该候选不是具体题型或题目判断。",
+            "学生未提供该主题的掌握度、错题或自评信息，因此个性化判断受限制。"
+          ]
+        },
+        "not_a_prediction": true
+      },
+      {
+        "rank": 2,
+        "focus_id": "rf_002",
+        "topic_or_concept": "数值积分、求积公式、代数精度与误差估计",
+        "priority": "high",
+        "recommended_time_hours": 2,
+        "why_this_matters": "课堂明确强调插值型数值积分与代数精度，历史模式相关证据覆盖 Simpson、梯形、复化梯形、误差估计和参数确定，适合进行公式与推导并重的复习。",
+        "learning_goal": "掌握常用求积公式、代数精度验证方法、误差估计思路，并能把 Richardson 外推或 Romberg 作为相邻方法进行联动理解。",
+        "practice_actions": [
+          "整理梯形、Simpson、复化梯形等公式及适用条件",
+          "练习一道代数精度验证题，明确验证到多项式次数的过程",
+          "完成一道带参数求积公式题，检查方程建立过程",
+          "复盘误差项中导数阶数、步长和区间长度的关系"
+        ],
+        "success_check": [
+          "能独立判断并验证求积公式的代数精度",
+          "能写出常用求积公式并完成代入计算",
+          "能说明误差估计中主要量的含义",
+          "能把外推思想与积分误差阶联系起来"
+        ],
+        "evidence_basis": {
+          "priority_score": 0.93,
+          "evidence_confidence": 0.89,
+          "source_basis": [
+            "lecture_signal_agent",
+            "exam_pattern_agent",
+            "student_profile_agent"
+          ],
+          "evidence_chain": [
+            "lecturesignal_006",
+            "exampattern_003",
+            "exampattern_009",
+            "exampattern_014",
+            "exampattern_019",
+            "studentprofile_001",
+            "studentprofile_004"
+          ],
+          "caveats": [
+            "历史题型证据用于说明复习相关性，不构成后续考查形式判断。",
+            "Richardson 外推与 Romberg 可作为该主题的相邻内容联动复习。",
+            "没有学生在求积公式或代数精度上的个人掌握证据，因此不能判定该主题是否为个人弱项。"
+          ]
+        },
+        "not_a_prediction": true
+      },
+      {
+        "rank": 3,
+        "focus_id": "rf_003",
+        "topic_or_concept": "正交多项式、三项递推与最佳平方逼近",
+        "priority": "high",
+        "recommended_time_hours": 1.75,
+        "why_this_matters": "该主题有强课堂强调，并与历史模式中的性质证明、正交性使用、最佳平方逼近和误差计算相关，属于理论与计算结合度较高的复习对象。",
+        "learning_goal": "理解正交性、内积、三项递推的基本结构，能够完成最佳平方逼近的系数计算和误差表达。",
+        "practice_actions": [
+          "整理正交多项式定义、正交性条件和三项递推的核心结论",
+          "练习一题利用正交性求展开系数或最佳平方逼近",
+          "写出误差计算的基本形式并标注内积权函数",
+          "用一页纸区分性质证明与计算题的解题入口"
+        ],
+        "success_check": [
+          "能说明正交性为何简化系数计算",
+          "能完成一个低阶最佳平方逼近计算",
+          "能识别三项递推中各项的作用",
+          "能把证明思路和计算流程分开整理"
+        ],
+        "evidence_basis": {
+          "priority_score": 0.9,
+          "evidence_confidence": 0.86,
+          "source_basis": [
+            "lecture_signal_agent",
+            "exam_pattern_agent",
+            "student_profile_agent"
+          ],
+          "evidence_chain": [
+            "lecturesignal_003",
+            "exampattern_005",
+            "exampattern_013",
+            "exampattern_016",
+            "studentprofile_001",
+            "studentprofile_004"
+          ],
+          "caveats": [
+            "历史考试证据显示既有相关性，但不能推出后续考查方式。",
+            "不同历史题型分析证据中的题型深度不同，复习时可同时覆盖概念、证明和计算。",
+            "缺少学生对内积空间、递推证明或平方逼近计算的具体掌握信息，个性化置信度受到限制。"
+          ]
+        },
+        "not_a_prediction": true
+      },
+      {
+        "rank": 4,
+        "focus_id": "rf_005",
+        "topic_or_concept": "线性方程组直接法、迭代法、收敛性与算法结构",
+        "priority": "high",
+        "recommended_time_hours": 1.75,
+        "why_this_matters": "历史模式多次涉及分解法、Jacobi/Gauss-Seidel 迭代、收敛性、结构矩阵和复杂度说明；课堂证据主要从算法结构与复杂度角度提供间接支持，因此适合作为高优先但需保留证据 caveat 的主题。",
+        "learning_goal": "掌握 Doolittle 或相关分解流程，能写出 Jacobi/Gauss-Seidel 迭代格式，理解收敛性判断和算法结构说明的基本语言。",
+        "practice_actions": [
+          "整理直接法与迭代法的步骤对照表",
+          "手算一道小规模 LU 或 Doolittle 分解题",
+          "写出 Jacobi 与 Gauss-Seidel 的迭代矩阵或迭代格式",
+          "复习收敛性判断的常见条件与表达方式"
+        ],
+        "success_check": [
+          "能独立完成一次小矩阵分解计算",
+          "能从线性方程组写出两类迭代格式",
+          "能说明收敛性判断依赖的矩阵量或条件",
+          "能用简短语言描述算法复杂度或结构特点"
+        ],
+        "evidence_basis": {
+          "priority_score": 0.82,
+          "evidence_confidence": 0.76,
+          "source_basis": [
+            "lecture_signal_agent",
+            "exam_pattern_agent",
+            "student_profile_agent"
+          ],
+          "evidence_chain": [
+            "lecturesignal_005",
+            "exampattern_001",
+            "exampattern_008",
+            "exampattern_011",
+            "exampattern_020",
+            "exampattern_022",
+            "studentprofile_001",
+            "studentprofile_004"
+          ],
+          "caveats": [
+            "复杂度与算法结构证据集中在线性方程组场景，不能泛化到所有算法章节。",
+            "缺少学生掌握度证据，无法判断是否为个人短板。",
+            "课堂证据对线性方程组方法本身并非直接强调，更多是算法结构层面的关联。"
+          ]
+        },
+        "not_a_prediction": true
+      },
+      {
+        "rank": 5,
+        "focus_id": "rf_004",
+        "topic_or_concept": "Romberg 方法与 Richardson 外推",
+        "priority": "medium",
+        "recommended_time_hours": 1,
+        "why_this_matters": "该主题有课堂强调，并与数值积分误差估计、梯形公式和外推思想相关，但直接历史证据覆盖较窄，因此适合作为数值积分板块内的联动复习。",
+        "learning_goal": "理解 Richardson 外推如何提高精度，掌握 Romberg 表的基本构造和与复化梯形公式的联系。",
+        "practice_actions": [
+          "把 Richardson 外推公式与误差阶消去过程写成步骤",
+          "练习构造一个小型 Romberg 表",
+          "标注该内容与数值积分公式、误差估计的连接点"
+        ],
+        "success_check": [
+          "能说明外推消去低阶误差项的思路",
+          "能完成至少两层 Romberg 表计算",
+          "能把该主题归入数值积分联动复习而非孤立复习"
+        ],
+        "evidence_basis": {
+          "priority_score": 0.78,
+          "evidence_confidence": 0.72,
+          "source_basis": [
+            "lecture_signal_agent",
+            "exam_pattern_agent",
+            "student_profile_agent"
+          ],
+          "evidence_chain": [
+            "lecturesignal_007",
+            "exampattern_014",
+            "studentprofile_001",
+            "studentprofile_004"
+          ],
+          "caveats": [
+            "该候选更适合作为数值积分主题下的联动重点，而非孤立复习块。",
+            "历史出现不表示相同应用场景会重复。",
+            "历史考试证据主要来自一个题目分析，跨年份覆盖不如数值积分主簇充分。"
+          ]
+        },
+        "not_a_prediction": true
+      },
+      {
+        "rank": 6,
+        "focus_id": "rf_006",
+        "topic_or_concept": "常微分方程数值方法、稳定性与精确性",
+        "priority": "medium",
+        "recommended_time_hours": 1,
+        "why_this_matters": "ODE 数值方法在历史模式中覆盖 Euler、后退 Euler、梯形法、改进 Euler、绝对稳定性、步长条件和精确性证明，但当前缺少对应课堂强调证据，因此应作为中等优先补充。",
+        "learning_goal": "掌握常见 ODE 格式的构造、一步计算、稳定性区域或步长条件的基本判断，并理解精确性验证的入口。",
+        "practice_actions": [
+          "整理 Euler、后退 Euler、梯形法、改进 Euler 的格式",
+          "完成一道一步或两步数值计算",
+          "复习绝对稳定性判断的测试方程思路",
+          "列出精确性或阶数验证的基本步骤"
+        ],
+        "success_check": [
+          "能从微分方程写出对应数值格式",
+          "能完成简单步进计算",
+          "能说明稳定性与步长条件的关系",
+          "能识别该主题证据主要来自历史模式而非课堂强调"
+        ],
+        "evidence_basis": {
+          "priority_score": 0.76,
+          "evidence_confidence": 0.72,
+          "source_basis": [
+            "exam_pattern_agent",
+            "student_profile_agent"
+          ],
+          "evidence_chain": [
+            "exampattern_004",
+            "exampattern_015",
+            "exampattern_017",
+            "exampattern_021",
+            "studentprofile_001",
+            "studentprofile_004"
+          ],
+          "caveats": [
+            "该候选主要由历史考试模式支持，课堂侧支持不足。",
+            "历史相关性不等于后续题型安排。",
+            "缺少学生在 ODE 板块的薄弱信息，因此不列为最高优先。"
+          ]
+        },
+        "not_a_prediction": true
+      },
+      {
+        "rank": 7,
+        "focus_id": "rf_007",
+        "topic_or_concept": "特征值算法、规范幂法与规范反幂法",
+        "priority": "medium",
+        "recommended_time_hours": 0.75,
+        "why_this_matters": "幂法和反幂法在历史模式中有相关观察，并可与线性方程组求解、矩阵分解联动，但缺少直接课堂强调和个人掌握证据，因此安排为短时巩固。",
+        "learning_goal": "掌握规范幂法和规范反幂法的迭代格式、归一化含义、特征值近似读取方式，以及与线性方程求解的连接。",
+        "practice_actions": [
+          "整理幂法与反幂法的迭代步骤",
+          "练习一次低维矩阵的迭代计算",
+          "标注归一化和特征值估计的关键位置"
+        ],
+        "success_check": [
+          "能写出两类迭代流程",
+          "能解释迭代向量与特征向量近似的关系",
+          "能说明该主题与线性方程组方法的联动点"
+        ],
+        "evidence_basis": {
+          "priority_score": 0.7,
+          "evidence_confidence": 0.67,
+          "source_basis": [
+            "exam_pattern_agent",
+            "student_profile_agent"
+          ],
+          "evidence_chain": [
+            "exampattern_007",
+            "exampattern_010",
+            "exampattern_022",
+            "studentprofile_001",
+            "studentprofile_004"
+          ],
+          "caveats": [
+            "该候选主要体现历史考试观察，不表示后续相关安排。",
+            "部分证据与线性方程组计算存在重叠，复习时可与矩阵分解和列主元消去联动。",
+            "缺少直接课堂强调证据和学生掌握证据，因此优先级低于课堂与考试双重支持的主题。"
+          ]
+        },
+        "not_a_prediction": true
+      },
+      {
+        "rank": 8,
+        "focus_id": "rf_008",
+        "topic_or_concept": "非线性方程迭代法：Newton 法、弦截法与收敛阶",
+        "priority": "medium",
+        "recommended_time_hours": 0.75,
+        "why_this_matters": "Newton 法与弦截法在历史模式中以公式、计算和收敛阶形式出现，内容相对基础且适合用短时间完成公式与小题巩固；但缺少课堂强调和个人错题证据。",
+        "learning_goal": "掌握 Newton 法、弦截法的迭代公式，能完成简单迭代计算，并理解收敛阶的基础表述。",
+        "practice_actions": [
+          "默写 Newton 法和弦截法公式",
+          "完成一道两到三步迭代计算",
+          "整理收敛阶定义和常见判断方式"
+        ],
+        "success_check": [
+          "能正确代入公式计算下一步迭代值",
+          "能区分 Newton 法与弦截法所需信息",
+          "能说明证据深度主要偏基础公式层面"
+        ],
+        "evidence_basis": {
+          "priority_score": 0.68,
+          "evidence_confidence": 0.66,
+          "source_basis": [
+            "exam_pattern_agent",
+            "student_profile_agent"
+          ],
+          "evidence_chain": [
+            "exampattern_006",
+            "exampattern_009",
+            "exampattern_016",
+            "studentprofile_001",
+            "studentprofile_004"
+          ],
+          "caveats": [
+            "证据显示的历史题型多为填空或基础公式层面，深度覆盖有限。",
+            "历史出现只说明观察到的相关性。",
+            "缺少课堂强调证据和学生个人错误记录，因此该候选不宜高于跨源强支持主题。"
+          ]
+        },
+        "not_a_prediction": true
+      },
+      {
+        "rank": 9,
+        "focus_id": null,
+        "topic_or_concept": "总复盘、自测与错因整理",
+        "priority": "medium",
+        "recommended_time_hours": 1,
+        "why_this_matters": "学生只有12小时且缺少个人薄弱点信息，最后需要用自测暴露实际短板，避免只按证据排序复习而忽略个人掌握差异。",
+        "learning_goal": "用短时自测检验公式记忆、计算流程、证明入口和易错点，并形成最后一页复习清单。",
+        "practice_actions": [
+          "从前8个主题各抽一个最小检查点进行闭卷回忆",
+          "把错误分为公式遗忘、步骤混乱、概念不清和计算失误",
+          "整理一页最终清单，包含公式、条件、典型步骤和个人易错点"
+        ],
+        "success_check": [
+          "能在不看资料时回忆核心公式和步骤",
+          "能指出至少3个个人易错点",
+          "能把最后复习集中到错误最多的主题上"
+        ],
+        "evidence_basis": {
+          "priority_score": 0.75,
+          "evidence_confidence": 0.7,
+          "source_basis": [
+            "student_profile_agent"
+          ],
+          "evidence_chain": [
+            "studentprofile_001",
+            "studentprofile_004"
+          ],
+          "caveats": [
+            "该项不是课程内容候选，而是针对时间有限和个人掌握信息缺失的风险控制。",
+            "自测结果只能帮助调整最后复习顺序，不代表任何考试内容判断。"
+          ]
+        },
+        "not_a_prediction": true
+      }
+    ],
+    "daily_schedule": [
+      {
+        "day": 1,
+        "estimated_hours": 6,
+        "main_goal": "先完成课堂与历史相关性均较强的核心板块，建立公式、步骤和证明框架。",
+        "tasks": [
+          {
+            "topic_or_concept": "插值、差商、Newton 插值、样条与 Runge 现象",
+            "time_hours": 2,
+            "task_type": "mixed",
+            "expected_output": "一页插值公式与性质清单；一道 Newton 插值计算；Runge 现象和样条边界条件的简短说明。"
+          },
+          {
+            "topic_or_concept": "数值积分、求积公式、代数精度与误差估计",
+            "time_hours": 2,
+            "task_type": "mixed",
+            "expected_output": "常用求积公式表；一道代数精度验证；一道误差估计或参数确定练习。"
+          },
+          {
+            "topic_or_concept": "Romberg 方法与 Richardson 外推",
+            "time_hours": 1,
+            "task_type": "application_practice",
+            "expected_output": "Richardson 外推步骤卡片；一个小型 Romberg 表计算。"
+          },
+          {
+            "topic_or_concept": "第1天小结",
+            "time_hours": 1,
+            "task_type": "summary",
+            "expected_output": "插值与积分两大板块的公式、条件、易错点合并清单；标记仍不能独立完成的步骤。"
+          }
+        ]
+      },
+      {
+        "day": 2,
+        "estimated_hours": 6,
+        "main_goal": "补齐理论计算结合主题和矩阵、ODE、迭代法板块，并用自测修正最后复习顺序。",
+        "tasks": [
+          {
+            "topic_or_concept": "正交多项式、三项递推与最佳平方逼近",
+            "time_hours": 1.75,
+            "task_type": "mixed",
+            "expected_output": "正交性与三项递推要点；一道最佳平方逼近或系数计算练习。"
+          },
+          {
+            "topic_or_concept": "线性方程组直接法、迭代法、收敛性与算法结构",
+            "time_hours": 1.75,
+            "task_type": "mixed",
+            "expected_output": "直接法与迭代法步骤对照；一道分解计算；Jacobi/Gauss-Seidel 迭代格式清单。"
+          },
+          {
+            "topic_or_concept": "常微分方程数值方法、稳定性与精确性",
+            "time_hours": 1,
+            "task_type": "application_practice",
+            "expected_output": "Euler 类和梯形类格式表；一道步进计算；稳定性判断入口说明。"
+          },
+          {
+            "topic_or_concept": "特征值算法与非线性方程迭代法",
+            "time_hours": 0.75,
+            "task_type": "calculation_practice",
+            "expected_output": "幂法、反幂法、Newton 法、弦截法公式速查；各完成一个最小计算检查。"
+          },
+          {
+            "topic_or_concept": "总复盘、自测与错因整理",
+            "time_hours": 0.75,
+            "task_type": "mistake_review",
+            "expected_output": "最终一页复习清单；按公式遗忘、步骤混乱、概念不清、计算失误分类的个人错因列表。"
+          }
+        ]
+      }
+    ],
+    "request_specific_advice": [
+      {
+        "user_need": "根据总讲义和老师颜色标注判断优先级",
+        "response": "优先采用课堂强调与讲义信号作为强依据；若某主题只有历史模式支持而缺少课堂强调，则降低排序或作为联动补充。"
+      },
+      {
+        "user_need": "相似课程往年题只能作为弱证据",
+        "response": "本策略将历史题目仅作为相关性线索，用于辅助选择练习方向，不把它们解释为本课程后续考查内容、形式或结果。"
+      },
+      {
+        "user_need": "制定两天复习计划",
+        "response": "已按2天、每天6小时进行时间盒安排；若实际可用时间减少，应优先保留插值、数值积分、正交多项式和线性方程组四个高优先主题。"
+      },
+      {
+        "user_need": "希望判断复习优先级",
+        "response": "排序依据是跨来源证据强弱、能力覆盖范围和时间压力，而不是对考试内容的判断；缺少个人掌握度信息时，建议用最后自测动态调整。"
+      }
+    ],
+    "low_confidence_items": [
+      {
+        "topic_or_concept": "常微分方程数值方法、稳定性与精确性",
+        "reason": "主要由历史模式支持，当前融合信息未提供对应课堂强调证据，也缺少学生掌握情况。",
+        "suggested_action": "作为中等优先主题复习基础格式、稳定性入口和一到两道计算，不宜挤占高优先主题时间。"
+      },
+      {
+        "topic_or_concept": "特征值算法、规范幂法与规范反幂法",
+        "reason": "缺少直接课堂强调证据，部分证据与线性方程组计算重叠。",
+        "suggested_action": "与矩阵分解、线性方程求解联动复习，重点掌握迭代流程和归一化含义。"
+      },
+      {
+        "topic_or_concept": "非线性方程迭代法：Newton 法、弦截法与收敛阶",
+        "reason": "历史相关证据多偏公式和基础计算层面，缺少课堂强调和个人错题证据。",
+        "suggested_action": "用短时间完成公式默写和最小计算检查，不作为主要耗时板块。"
+      },
+      {
+        "topic_or_concept": "三角插值、三角逼近与 DFT",
+        "reason": "当前信息显示只有课堂强调证据，缺少历史模式和学生需要的交叉支持，未进入前8个复习候选。",
+        "suggested_action": "若老师颜色标注非常明确或讲义中标为重点，可在完成主计划后用15到30分钟浏览定义和核心公式。"
+      },
+      {
+        "topic_or_concept": "蒙特卡洛方法与凸优化",
+        "reason": "课堂证据较强但缺少历史模式支持，且当前12小时预算有限。",
+        "suggested_action": "除非讲义颜色标注为必须掌握范围内的核心内容，否则只做概念级浏览或放入备选清单。"
+      }
+    ],
+    "risk_controls": [
+      {
+        "risk_type": "limited_time",
+        "strategy": "采用时间盒复习，每个主题到点必须产出公式表、步骤清单或一道练习结果；若超时，优先保留高优先主题，压缩中等优先主题。"
+      },
+      {
+        "risk_type": "low_evidence",
+        "strategy": "对只有历史模式或单侧证据支持的主题使用保守安排，不将其提升到核心复习块；保留所有历史模式 caveat。"
+      },
+      {
+        "risk_type": "score_overpromise",
+        "strategy": "不承诺分数、结果或考查内容；本报告只提供基于证据的复习排序和时间管理建议。"
+      },
+      {
+        "risk_type": "over_focus",
+        "strategy": "避免只复习历史模式中出现过的题目；每个主题至少覆盖概念、公式条件、计算步骤和一项检查输出。"
+      },
+      {
+        "risk_type": "other",
+        "strategy": "由于缺少错题和掌握度自评，第二天末安排自测与错因整理，用实际错误修正最后复习顺序。"
+      }
+    ],
+    "draft_notes": {
+      "used_user_constraints": [
+        "2天复习时间",
+        "每天6小时",
+        "总计约12小时",
+        "需要优先级判断",
+        "需要两天复习计划",
+        "相似课程历史题目只能作为弱证据",
+        "不能把历史题目当作本课程考试预测"
+      ],
+      "preserved_caveats": [
+        "历史考试模式只表示既有相关性，不构成后续考查判断。",
+        "历史题型证据用于说明复习相关性，不构成后续考查形式判断。",
+        "历史考试证据显示既有相关性，但不能推出后续考查方式。",
+        "历史出现不表示相同应用场景会重复。",
+        "历史相关性不等于后续题型安排。",
+        "学生未提供具体错题、掌握度自评或薄弱章节，个性化判断受限制。",
+        "部分候选主要由历史模式支持，课堂侧支持不足，因此不列为最高优先。"
+      ]
+    },
+    "uncertainties": [
+      "没有学生具体错题、模拟测验结果或章节掌握度自评，因此无法判断哪些主题是真正个人短板。",
+      "低优先级或不要求内容标注证据被截断，无法稳定映射到具体复习候选。",
+      "三角插值、三角逼近、DFT、蒙特卡洛方法与凸优化等主题存在证据不完整或交叉支持不足的问题，当前策略仅给出保守处理。",
+      "历史题目来自同一老师相似课程，只能作为弱相关线索，不能用于推断本课程后续考查内容。",
+      "若实际讲义颜色标注与融合结果存在差异，应优先重新核对老师明确标出的重点和不要求内容。"
+    ],
+    "final_critic_summary": {
+      "critic_passed": false,
+      "overall_risk_level": "medium",
+      "prediction_risk": "low",
+      "score_overpromise_risk": "none",
+      "repair_instructions": [
+        "补充说明 course_material_agent/讲义颜色标注证据在逐项候选中的缺失或不可见，避免声称所有优先级都由总讲义直接支撑。",
+        "明确“不用看内容”证据被截断或无法稳定映射，因此报告不能给出确定排除清单，只能给出低优先或备选处理。",
+        "统一 prioritized_review_plan 与 daily_schedule 的时间分配，尤其是第2天低优先主题和总复盘时长。",
+        "为 low_confidence_items 和 daily_schedule 增加或继承 not_a_prediction 标识，防止单独展示时被误读为考试预测。",
+        "弱化“常见”“多次涉及”“应优先保留”等可能显得确定的措辞，改为“当前证据显示相关”“可优先考虑”“建议结合自测调整”。"
+      ],
+      "remaining_caveats": [
+        "没有发现分数、通过率或学习结果方面的过度承诺。",
+        "没有明显确定性考试预测语言。",
+        "主体候选条目大多包含 evidence_basis、caveats 和 not_a_prediction。",
+        "历史题弱证据边界在总体说明和多数候选 caveats 中保存较好。",
+        "主要修复点集中在讲义/颜色标注证据链不足、日程时间不一致和低置信/日程项的非预测标识。"
+      ],
+      "critic_report": {
+        "workflow_name": "strategy_critic",
+        "critic_passed": false,
+        "overall_risk_level": "medium",
+        "prediction_risk": "low",
+        "score_overpromise_risk": "none",
+        "unsupported_claims": [
+          {
+            "location": "strategy_summary.priority_rule",
+            "claim": "优先级主要依据课堂强调、历史模式相关性、能力覆盖广度和时间约束",
+            "reason": "多数候选的 evidence_basis 未包含 course_material_agent，且融合不确定性提示部分候选缺少课程材料代理具体证据 ID；“能力覆盖广度”也未在逐项 evidence_basis 中明确对应证据。"
+          },
+          {
+            "location": "request_specific_advice[0].response",
+            "claim": "优先采用课堂强调与讲义信号作为强依据",
+            "reason": "报告没有展示讲义颜色标注或“不用看内容”的具体证据链，候选 evidence_basis 主要是 lecture_signal_agent、exam_pattern_agent 和 student_profile_agent。"
+          }
+        ],
+        "overconfident_language": [
+          {
+            "location": "strategy_summary.overall_strategy",
+            "text": "优先覆盖课堂强调与历史模式有交叉支持的主题",
+            "suggested_rewrite": "优先覆盖当前融合结果中显示课堂信号与历史相关性相对更一致的主题，并保留历史题仅为弱证据的限制。"
+          },
+          {
+            "location": "request_specific_advice[2].response",
+            "text": "应优先保留插值、数值积分、正交多项式和线性方程组四个高优先主题",
+            "suggested_rewrite": "可优先保留当前证据排序较高的插值、数值积分、正交多项式和线性方程组，但仍应结合老师明确标注与个人自测结果调整。"
+          }
+        ],
+        "missing_evidence_links": [
+          {
+            "location": "prioritized_review_plan[*].evidence_basis.source_basis",
+            "issue": "候选条目的证据链几乎未引用 course_material_agent，难以支撑“根据总讲义、颜色标注、不要看内容”生成优先级的说法。"
+          },
+          {
+            "location": "low_confidence_items[3-4]",
+            "issue": "三角插值、DFT、蒙特卡洛与凸优化的处理没有 evidence_basis 或 not_a_prediction 字段，虽然属于低置信补充项，也应保持证据和非预测标识一致。"
+          },
+          {
+            "location": "daily_schedule.tasks",
+            "issue": "日程任务没有逐项 evidence_basis 或 not_a_prediction 标识，若日程内容被单独抽取展示，非预测边界可能丢失。"
+          }
+        ],
+        "ignored_user_constraints": [
+          {
+            "constraint": "老师用颜色标出的重点/不用看内容",
+            "issue": "报告主要使用课堂强调和历史模式排序，但没有明确列出哪些内容因“不用看”标注被排除或降权，也没有说明颜色标注证据不足时的处理方式。"
+          },
+          {
+            "constraint": "相似课程往年题只能作为弱证据，不能当成本课程考试预测",
+            "issue": "总体边界保存较好，但部分表述如“历史模式多次涉及”“常见计算链条”可能被读者理解为题型趋势，应进一步弱化并在日程层面补充 not_a_prediction。"
+          }
+        ],
+        "ignored_caveats": [
+          {
+            "caveat": "部分候选缺少课程材料代理的具体证据 ID；当前排序主要依赖课堂信号、历史考试模式和学生时间限制。",
+            "issue": "报告在 strategy_summary 和 request_specific_advice 中仍较强地声称依据总讲义和讲义信号，未充分说明课程材料证据链不完整。"
+          },
+          {
+            "caveat": "历史考试模式仅表示观察到的历史相关性，不能作为后续考查内容或形式判断。",
+            "issue": "报告大体保留该 caveat，但日程与低置信条目没有逐项 not_a_prediction，存在边界在下游展示中丢失的风险。"
+          },
+          {
+            "caveat": "低优先级或不要求内容标注证据被截断，无法稳定映射到具体复习候选。",
+            "issue": "报告没有明确说明“不用看内容”不能被稳定映射，因此不应把未列入计划的内容解释为确定不用复习。"
+          }
+        ],
+        "unrealistic_time_plan": [
+          {
+            "location": "prioritized_review_plan vs daily_schedule.day2",
+            "issue": "优先级列表为特征值算法 0.75 小时、非线性方程迭代法 0.75 小时、总复盘 1 小时，但第2天日程将特征值与非线性方程合并为 0.75 小时，并把总复盘压缩为 0.75 小时，和前文推荐时间不一致。",
+            "suggested_fix": "统一时间预算：要么将两个低优先主题各改为 0.375 小时、总复盘改为 0.75 小时；要么调整第2天日程以匹配优先级列表的 2.5 小时安排。"
+          },
+          {
+            "location": "daily_schedule.day2.tasks[3]",
+            "issue": "0.75 小时内要求幂法、反幂法、Newton 法、弦截法公式速查且各完成一个最小计算检查，任务密度偏高。",
+            "suggested_fix": "改为只做公式回忆和各选一个代表性最小检查，或明确这是可压缩的扫尾任务而非完整练习。"
+          }
+        ],
+        "repair_instructions": [
+          "补充说明 course_material_agent/讲义颜色标注证据在逐项候选中的缺失或不可见，避免声称所有优先级都由总讲义直接支撑。",
+          "明确“不用看内容”证据被截断或无法稳定映射，因此报告不能给出确定排除清单，只能给出低优先或备选处理。",
+          "统一 prioritized_review_plan 与 daily_schedule 的时间分配，尤其是第2天低优先主题和总复盘时长。",
+          "为 low_confidence_items 和 daily_schedule 增加或继承 not_a_prediction 标识，防止单独展示时被误读为考试预测。",
+          "弱化“常见”“多次涉及”“应优先保留”等可能显得确定的措辞，改为“当前证据显示相关”“可优先考虑”“建议结合自测调整”。"
+        ],
+        "remaining_caveats": [
+          "没有发现分数、通过率或学习结果方面的过度承诺。",
+          "没有明显确定性考试预测语言。",
+          "主体候选条目大多包含 evidence_basis、caveats 和 not_a_prediction。",
+          "历史题弱证据边界在总体说明和多数候选 caveats 中保存较好。",
+          "主要修复点集中在讲义/颜色标注证据链不足、日程时间不一致和低置信/日程项的非预测标识。"
+        ]
+      }
+    },
+    "_agent_meta": {
+      "manual_fallback_inserted": true,
+      "fallback_reason": "HTTP OpenAI - Repair Review Strategy returned 504 Gateway timeout; using parsed draft strategy plus parsed critic report.",
+      "source_file": "D:\\Desktop\\test.md",
+      "inserted_at": "2026-07-05T05:20:37"
+    }
+  },
+  "orchestrator_warnings": [
+    "Manual demo fallback: final_report was filled from Parse Draft Strategy JSON plus Parse Critic Report because the final repair LLM call timed out with 504."
+  ],
+  "manual_fallback": {
+    "applied": true,
+    "failed_node": "HTTP OpenAI - Repair Review Strategy",
+    "failure": "504 Gateway timeout",
+    "source_file": "D:\\Desktop\\test.md",
+    "used_fields": [
+      "draft_review_report",
+      "critic_report"
+    ],
+    "note": "For demo continuity, final_report was reconstructed from the successful parsed draft and critic outputs before the repair LLM timeout."
+  },
+  "output_note": "Final report uses the successful draft strategy and critic report because the final repair OpenAI node timed out."
+}
